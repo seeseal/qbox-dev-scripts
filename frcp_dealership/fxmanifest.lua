@@ -5,7 +5,7 @@ lua54 'yes'
 name        'frcp_dealership'
 description 'FlameDrive Motors — Dealership Job System for Flame City'
 author      'Flame City Dev'
-version     '2.1.1'
+version     '2.2.0'
 
 dependencies {
     'qbx_core',
@@ -28,12 +28,14 @@ server_scripts {
     'server/job.lua',
     'server/society.lua',
     'server/testdrive.lua',
+    'server/showroom.lua',
 }
 
 client_scripts {
     'client/main.lua',
     'client/job.lua',
     'client/testdrive.lua',
+    'client/showroom.lua',
 }
 
 ui_page 'html/index.html'

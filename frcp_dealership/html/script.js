@@ -129,6 +129,10 @@ window.addEventListener('message', function(event) {
         closeUI();
     }
 
+    if (action === 'receiveDisplayModels') {
+        buildDisplaySlots(event.data.models, event.data.catalogForPicker);
+    }
+
     if (action === 'updateSupply') {
         var updatedModel = event.data.model;
         var newSold      = event.data.sold;
@@ -558,5 +562,237 @@ function closeUI() {
     var sortSelect = document.getElementById('sort-select');
     if (sortSelect) sortSelect.value = 'default';
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+//  SHOWROOM DISPLAY MANAGER
+// ══════════════════════════════════════════════════════════════════════════
+
+var displayModels        = {};   // spotIndex -> current model name
+var pickerCatalog        = [];   // full vehicle list for picker
+var pickerTargetSpot     = null; // which spot is being changed
+var pickerActiveCategory = 'all';
+
+// ── Build the display slots grid in the Employee tab ─────────────────────
+
+function buildDisplaySlots(models, catalog) {
+    displayModels  = models  || {};
+    pickerCatalog  = catalog || [];
+
+    var grid = document.getElementById('display-slots-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    var spotCount = Object.keys(models).length;
+    if (spotCount === 0) {
+        grid.innerHTML = '<p class="section-desc">No display spots configured.</p>';
+        return;
+    }
+
+    Object.keys(models).sort(function(a,b){return a-b;}).forEach(function(spotKey) {
+        var spotIndex = parseInt(spotKey);
+        var model     = models[spotKey];
+
+        // Find vehicle label
+        var label = model;
+        var tier  = 'standard';
+        pickerCatalog.forEach(function(v) {
+            if (v.model === model) { label = v.label; tier = v.tier; }
+        });
+
+        var slot = document.createElement('div');
+        slot.className = 'display-slot';
+        slot.dataset.spot = spotIndex;
+
+        slot.innerHTML =
+            '<div class="display-slot-number">Spot ' + spotIndex + '</div>' +
+            '<div class="display-slot-model">' +
+                '<img class="display-slot-img" src="img/' + model.toLowerCase() + '.jpg" ' +
+                    'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'" />' +
+                '<div class="display-slot-icon-fallback" style="display:none">' +
+                    getTierIcon(tier) +
+                '</div>' +
+            '</div>' +
+            '<div class="display-slot-label">' + label + '</div>' +
+            '<div class="display-slot-tier tier-badge tier-' + tier + '">' + tier.toUpperCase() + '</div>' +
+            '<button class="display-slot-change-btn" data-spot="' + spotIndex + '">' +
+                '<i class="fas fa-exchange-alt"></i> Change' +
+            '</button>';
+
+        slot.querySelector('.display-slot-change-btn').addEventListener('click', function() {
+            openShowroomPicker(spotIndex);
+        });
+
+        grid.appendChild(slot);
+    });
+}
+
+function getTierIcon(tier) {
+    var icons = { standard: '🚗', elite: '⭐', apex: '💎' };
+    return '<span style="font-size:2rem">' + (icons[tier] || '🚗') + '</span>';
+}
+
+// ── Update a single slot after a swap ────────────────────────────────────
+
+function updateDisplaySlot(spotIndex, model) {
+    displayModels[spotIndex] = model;
+    var label = model;
+    var tier  = 'standard';
+    pickerCatalog.forEach(function(v) {
+        if (v.model === model) { label = v.label; tier = v.tier; }
+    });
+
+    var slot = document.querySelector('.display-slot[data-spot="' + spotIndex + '"]');
+    if (!slot) return;
+
+    var img = slot.querySelector('.display-slot-img');
+    var fallback = slot.querySelector('.display-slot-icon-fallback');
+    if (img) { img.src = 'img/' + model.toLowerCase() + '.jpg'; img.style.display = ''; }
+    if (fallback) { fallback.style.display = 'none'; fallback.innerHTML = getTierIcon(tier); }
+
+    var labelEl = slot.querySelector('.display-slot-label');
+    if (labelEl) labelEl.textContent = label;
+
+    var tierEl = slot.querySelector('.display-slot-tier');
+    if (tierEl) { tierEl.textContent = tier.toUpperCase(); tierEl.className = 'display-slot-tier tier-badge tier-' + tier; }
+}
+
+// ── Showroom Picker Modal ─────────────────────────────────────────────────
+
+function openShowroomPicker(spotIndex) {
+    pickerTargetSpot     = spotIndex;
+    pickerActiveCategory = 'all';
+
+    var label = document.getElementById('showroom-modal-spot-label');
+    if (label) label.textContent = 'Display Spot ' + spotIndex;
+
+    var searchInput = document.getElementById('showroom-search');
+    if (searchInput) searchInput.value = '';
+
+    buildPickerCategories();
+    renderPickerVehicles('');
+
+    document.getElementById('showroom-modal').classList.remove('hidden');
+}
+
+function buildPickerCategories() {
+    var pills    = document.getElementById('showroom-cat-pills');
+    if (!pills) return;
+    pills.innerHTML = '';
+
+    var categories = ['all'];
+    pickerCatalog.forEach(function(v) {
+        if (categories.indexOf(v.category) === -1) categories.push(v.category);
+    });
+
+    categories.forEach(function(cat) {
+        var pill = document.createElement('button');
+        pill.className   = 'picker-cat-pill' + (cat === pickerActiveCategory ? ' active' : '');
+        pill.textContent = cat === 'all' ? 'All' : cat;
+        pill.addEventListener('click', function() {
+            pickerActiveCategory = cat;
+            pills.querySelectorAll('.picker-cat-pill').forEach(function(p){ p.classList.remove('active'); });
+            pill.classList.add('active');
+            renderPickerVehicles(document.getElementById('showroom-search').value || '');
+        });
+        pills.appendChild(pill);
+    });
+}
+
+function renderPickerVehicles(searchQuery) {
+    var list = document.getElementById('showroom-vehicle-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    var q       = (searchQuery || '').toLowerCase().trim();
+    var current = displayModels[pickerTargetSpot] || '';
+
+    var filtered = pickerCatalog.filter(function(v) {
+        var catOk    = pickerActiveCategory === 'all' || v.category === pickerActiveCategory;
+        var searchOk = !q || v.label.toLowerCase().indexOf(q) !== -1 || v.model.toLowerCase().indexOf(q) !== -1;
+        return catOk && searchOk;
+    });
+
+    if (filtered.length === 0) {
+        list.innerHTML = '<p class="picker-empty">No vehicles match your search.</p>';
+        return;
+    }
+
+    filtered.forEach(function(v) {
+        var row = document.createElement('div');
+        row.className = 'picker-row' + (v.model === current ? ' picker-row-current' : '');
+
+        row.innerHTML =
+            '<div class="picker-row-img-wrap">' +
+                '<img class="picker-row-img" src="img/' + v.model.toLowerCase() + '.jpg" ' +
+                    'onerror="this.style.display=\'none\'" />' +
+            '</div>' +
+            '<div class="picker-row-info">' +
+                '<span class="picker-row-label">' + v.label + '</span>' +
+                '<span class="picker-row-cat">' + v.category + '</span>' +
+            '</div>' +
+            '<span class="tier-badge tier-' + v.tier + '">' + v.tier.toUpperCase() + '</span>' +
+            '<button class="picker-row-select-btn' + (v.model === current ? ' picker-row-current-btn' : '') + '" data-model="' + v.model + '">' +
+                (v.model === current ? '<i class="fas fa-check"></i> Current' : 'Select') +
+            '</button>';
+
+        row.querySelector('.picker-row-select-btn').addEventListener('click', function() {
+            if (v.model === current) return;
+            confirmDisplayChange(pickerTargetSpot, v.model, v.label);
+        });
+
+        list.appendChild(row);
+    });
+}
+
+function confirmDisplayChange(spotIndex, model, label) {
+    document.getElementById('showroom-modal').classList.add('hidden');
+
+    // Send to Lua → server validates + broadcasts
+    fetch('https://' + GetParentResourceName() + '/changeDisplay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spot: spotIndex, model: model })
+    });
+
+    // Optimistically update the slot in UI
+    updateDisplaySlot(spotIndex, model);
+}
+
+// ── Search input listener ─────────────────────────────────────────────────
+
+var showroomSearch = document.getElementById('showroom-search');
+if (showroomSearch) {
+    showroomSearch.addEventListener('input', function(e) {
+        renderPickerVehicles(e.target.value);
+    });
+}
+
+// ── Cancel button ─────────────────────────────────────────────────────────
+
+var showroomCancel = document.getElementById('showroom-modal-cancel');
+if (showroomCancel) {
+    showroomCancel.addEventListener('click', function() {
+        document.getElementById('showroom-modal').classList.add('hidden');
+        pickerTargetSpot = null;
+    });
+}
+
+// ── ESC also closes the picker ────────────────────────────────────────────
+// (existing ESC handler already calls closeUI but we need to close picker first)
+document.addEventListener('keydown', function(e) {
+    if ((e.key === 'Escape' || e.key === 'Backspace') && pickerTargetSpot !== null) {
+        if (document.activeElement && (
+            document.activeElement.tagName === 'INPUT' ||
+            document.activeElement.tagName === 'TEXTAREA'
+        )) return;
+        document.getElementById('showroom-modal').classList.add('hidden');
+        pickerTargetSpot = null;
+        e.stopImmediatePropagation(); // don't also close the main UI
+    }
+}, true); // capture phase so it fires before the existing ESC listener
+
+// ── Receive live display update (another employee changed a spot) ─────────
+// Fired via receiveDisplayModels action above
+
 
 console.log('[FD] script.js v2.0 fully loaded.');

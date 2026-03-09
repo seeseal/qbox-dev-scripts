@@ -923,3 +923,317 @@ body {
 }
 
 .btn-confirm:hover { opacity: 0.9; box-shadow: var(--glow-purple); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHOWROOM DISPLAY MANAGER
+══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Display Slots Grid ─────────────────────────────────────────────────── */
+
+.display-slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.display-slot {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.display-slot:hover {
+    border-color: var(--purple);
+    box-shadow: var(--glow-purple);
+}
+
+.display-slot-number {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.display-slot-model {
+    width: 100%;
+    height: 80px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.03);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.display-slot-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+}
+
+.display-slot-icon-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+}
+
+.display-slot-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: center;
+    line-height: 1.3;
+}
+
+.display-slot-tier {
+    font-size: 10px;
+}
+
+.display-slot-change-btn {
+    width: 100%;
+    padding: 8px;
+    background: transparent;
+    border: 1px solid var(--purple);
+    border-radius: 8px;
+    color: var(--purple);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.display-slot-change-btn:hover {
+    background: var(--purple);
+    color: white;
+    box-shadow: var(--glow-purple);
+}
+
+.display-slot-loading {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 12px 0;
+}
+
+/* ── Showroom Picker Modal ───────────────────────────────────────────────── */
+
+#showroom-modal .modal-box {
+    max-width: 520px;
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+#showroom-modal .modal-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+#showroom-modal .modal-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.showroom-search-wrap {
+    position: relative;
+    padding: 12px 16px 8px;
+    flex-shrink: 0;
+}
+
+.showroom-search-icon {
+    position: absolute;
+    left: 28px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 12px;
+    pointer-events: none;
+    margin-top: 4px;
+}
+
+#showroom-search {
+    width: 100%;
+    padding: 9px 12px 9px 34px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+#showroom-search:focus {
+    border-color: var(--purple);
+    box-shadow: var(--glow-purple);
+}
+
+.showroom-cat-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 16px 10px;
+    flex-shrink: 0;
+}
+
+.picker-cat-pill {
+    padding: 4px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.picker-cat-pill:hover {
+    border-color: var(--purple);
+    color: var(--purple);
+}
+
+.picker-cat-pill.active {
+    background: var(--purple);
+    border-color: var(--purple);
+    color: white;
+}
+
+.showroom-vehicle-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 16px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.showroom-vehicle-list::-webkit-scrollbar { width: 4px; }
+.showroom-vehicle-list::-webkit-scrollbar-track { background: transparent; }
+.showroom-vehicle-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.picker-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: border-color 0.15s;
+    flex-shrink: 0;
+}
+
+.picker-row:hover {
+    border-color: var(--purple);
+}
+
+.picker-row-current {
+    border-color: rgba(138, 92, 246, 0.5);
+    background: rgba(138, 92, 246, 0.07);
+}
+
+.picker-row-img-wrap {
+    width: 56px;
+    height: 36px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.03);
+    flex-shrink: 0;
+}
+
+.picker-row-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.picker-row-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.picker-row-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.picker-row-cat {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.picker-row-select-btn {
+    padding: 6px 14px;
+    background: var(--purple);
+    border: none;
+    border-radius: 7px;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.picker-row-select-btn:hover {
+    opacity: 0.85;
+    box-shadow: var(--glow-purple);
+}
+
+.picker-row-current-btn {
+    background: rgba(138, 92, 246, 0.2);
+    color: var(--purple);
+    cursor: default;
+}
+
+.picker-row-current-btn:hover {
+    opacity: 1;
+    box-shadow: none;
+}
+
+.picker-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 20px 0;
+}
+
+#showroom-modal .modal-actions {
+    padding: 12px 16px 16px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}

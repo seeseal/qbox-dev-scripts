@@ -66,6 +66,10 @@ RegisterNetEvent('frcp_dealership:client:openUI', function(data, standIndex)
     isUIOpen       = true
     activeStandIndex = standIndex  -- remember which stand opened this session
     SetNuiFocus(true, true)
+    -- Fetch display models and send alongside catalog (employee tab needs this)
+    local displayInfo = {}
+    TriggerServerEvent('frcp_dealership:server:getDisplayModels')
+
     SendNUIMessage({
         action         = "openDealership",
         data           = data,
@@ -240,6 +244,12 @@ RegisterNUICallback('demotePlayer', function(data, cb)
     TriggerServerEvent('frcp_dealership:server:demote', data.targetId)
 end)
 
+-- Employee: change a display vehicle
+RegisterNUICallback('changeDisplay', function(data, cb)
+    cb('ok')
+    TriggerServerEvent('frcp_dealership:server:changeDisplay', data.spot, data.model)
+end)
+
 -- ============================================
 --  ESC to close
 -- ============================================
@@ -253,6 +263,25 @@ CreateThread(function()
             Wait(500)
         end
     end
+end)
+
+-- Receive display models from server and forward to NUI
+RegisterNetEvent('frcp_dealership:client:receiveDisplayModels', function(models)
+    -- Build catalog list for the picker
+    local catalogForPicker = {}
+    for _, v in ipairs(Config.Vehicles) do
+        table.insert(catalogForPicker, {
+            model    = v.model,
+            label    = v.label,
+            tier     = v.tier,
+            category = v.category,
+        })
+    end
+    SendNUIMessage({
+        action            = "receiveDisplayModels",
+        models            = models,
+        catalogForPicker  = catalogForPicker,
+    })
 end)
 
 print("^2[frcp_dealership] client/main.lua loaded.^0")

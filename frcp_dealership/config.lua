@@ -116,7 +116,7 @@ Config.GovBankAccount  = "gov_taxes"  -- !! CHANGE ME !!
 -- ============================================
 
 Config.TestDriveDuration = 300          -- seconds (300 = 5 minutes)
-Config.TestDriveRadius   = 3000000.0        -- metres from return point before warning (!! CHANGE ME !!)
+Config.TestDriveRadius   = 300.0        -- metres from return point before warning (!! CHANGE ME !!)
 Config.TestDriveStart    = vec4(-976.52, -469.84, 35.28, 56.0)   -- !! CHANGE ME !! road near dealership
 Config.TestDriveReturn   = vec3(-951.06, -495.1,  35.84)          -- !! CHANGE ME !! where player returns
 
@@ -161,6 +161,35 @@ Config.StashWeight  = 100000   -- in grams (ox_inventory uses grams)
 -- ============================================
 
 Config.MaxWithdrawal = 500000   -- !! CHANGE ME !! to whatever suits your economy
+
+
+-- ============================================
+--  SHOWROOM DISPLAY VEHICLES
+--  Static vehicles placed on the showroom floor.
+--  Add as many spots as you like.
+--
+--  coords   = vec4(x, y, z, heading) — where
+--             the vehicle spawns
+--  default  = model name shown on first load
+--             (overridden by DB once an employee
+--             changes it in the UI)
+--
+--  !! CHANGE ME !! — set coords to your MLO
+--  showroom floor positions
+-- ============================================
+
+Config.DisplaySpots = {
+    [1] = { coords = vec4(-944.59, -485.76, 35.43, 30.07),  default = "italirsx"   },
+    [2] = { coords = vec4(-952.0, -493.0, 35.84, 90.0),  default = "pfister811" },
+    [3] = { coords = vec4(-952.0, -495.0, 35.84, 90.0),  default = "toreoxo"    },
+    [4] = { coords = vec4(-955.0, -491.0, 35.84, 270.0), default = "exemplar"   },
+    [5] = { coords = vec4(-955.0, -493.0, 35.84, 270.0), default = "oraclexs"   },
+    [6] = { coords = vec4(-955.0, -495.0, 35.84, 270.0), default = "elegy"      },
+}
+
+-- Minimum grade required to change a display vehicle
+-- 0 = any employee, 1 = Salesperson+, 2 = Sales Manager+, 3 = GM only
+Config.DisplayChangeMinGrade = 0   -- any on-duty employee
 
 -- ============================================
 --  Tier Definitions  (unchanged from v1)

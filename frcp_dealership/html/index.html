@@ -164,6 +164,16 @@
                     <li>Use <code>/fdstaff</code> to see who is currently on shift.</li>
                 </ul>
             </div>
+
+            <!-- ─── Showroom Display Manager ─── -->
+            <div class="job-section" id="showroom-section">
+                <h2 class="section-title"><i class="fas fa-store"></i> Showroom Display</h2>
+                <p class="section-desc">Change which vehicles are on display on the showroom floor. Changes are visible to all players instantly.</p>
+                <div id="display-slots-grid" class="display-slots-grid">
+                    <!-- Slots injected by JS from Config.DisplaySpots -->
+                    <div class="display-slot-loading">Loading display vehicles…</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -340,5 +350,36 @@
 </div>
 
 <script src="script.js"></script>
+<!-- ═══ SHOWROOM PICKER MODAL ═══ -->
+<div id="showroom-modal" class="modal hidden">
+    <div class="modal-box">
+        <div class="modal-header">
+            <i class="fas fa-store"></i>
+            <h2>Change Display Vehicle</h2>
+            <p id="showroom-modal-spot-label" class="modal-subtitle">Display Spot 1</p>
+        </div>
+
+        <!-- Search -->
+        <div class="showroom-search-wrap">
+            <i class="fas fa-search showroom-search-icon"></i>
+            <input type="text" id="showroom-search" placeholder="Search vehicles…" autocomplete="off" />
+        </div>
+
+        <!-- Category filter pills -->
+        <div id="showroom-cat-pills" class="showroom-cat-pills"></div>
+
+        <!-- Vehicle list -->
+        <div id="showroom-vehicle-list" class="showroom-vehicle-list">
+            <!-- Injected by JS -->
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn-cancel" id="showroom-modal-cancel">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>
