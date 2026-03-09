@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlameDrive Motors</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+<div id="dealership-ui" class="hidden">
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <div class="header-logo">
+                <i class="fas fa-fire"></i>
+            </div>
+            <div class="header-info">
+                <h1 id="dealership-name">FlameDrive Motors</h1>
+                <p id="player-name">Welcome</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="balance-box">
+                <i class="fas fa-university"></i>
+                <span id="player-balance">$0</span>
+            </div>
+            <div class="tickets-box">
+                <div class="ticket-item elite">
+                    <i class="fas fa-ticket-alt"></i>
+                    <span>Elite</span>
+                    <span id="ticket-elite">0</span>
+                </div>
+                <div class="ticket-item apex">
+                    <i class="fas fa-crown"></i>
+                    <span>Apex</span>
+                    <span id="ticket-apex">0</span>
+                </div>
+            </div>
+            <button class="close-btn" id="close-btn">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main">
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+
+            <!-- Tier Filter -->
+            <div class="filter-section">
+                <p class="filter-label">TIER</p>
+                <button class="filter-btn active" data-filter="tier" data-value="all">
+                    <i class="fas fa-layer-group"></i> All Tiers
+                </button>
+                <button class="filter-btn standard" data-filter="tier" data-value="standard">
+                    <i class="fas fa-circle"></i> Standard
+                </button>
+                <button class="filter-btn elite" data-filter="tier" data-value="elite">
+                    <i class="fas fa-star"></i> Elite
+                </button>
+                <button class="filter-btn apex" data-filter="tier" data-value="apex">
+                    <i class="fas fa-crown"></i> Apex
+                </button>
+            </div>
+
+            <!-- Category Filter -->
+            <div class="filter-section">
+                <p class="filter-label">CATEGORY</p>
+                <button class="filter-btn active" data-filter="category" data-value="all">
+                    <i class="fas fa-th"></i> All Categories
+                </button>
+                <div id="category-filters"></div>
+            </div>
+
+            <!-- Sort -->
+            <div class="filter-section">
+                <p class="filter-label">SORT BY</p>
+                <select id="sort-select">
+                    <option value="default">Default</option>
+                    <option value="price-asc">Price: Low to High</option>
+                    <option value="price-desc">Price: High to Low</option>
+                    <option value="name-asc">Name: A to Z</option>
+                </select>
+            </div>
+
+        </div>
+
+        <!-- Vehicle Grid -->
+        <div class="content">
+            <div class="content-header">
+                <p id="result-count">0 vehicles</p>
+            </div>
+            <div id="vehicle-grid" class="vehicle-grid"></div>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- Purchase Confirmation Modal -->
+<div id="confirm-modal" class="modal hidden">
+    <div class="modal-box">
+        <div class="modal-header">
+            <i class="fas fa-fire"></i>
+            <h2>Confirm Purchase</h2>
+        </div>
+        <div class="modal-body">
+            <p id="modal-vehicle-name">Vehicle Name</p>
+            <div class="modal-details">
+                <div class="modal-detail-row">
+                    <span>Tier</span>
+                    <span id="modal-tier">—</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span>Price</span>
+                    <span id="modal-price">—</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span>Supply</span>
+                    <span id="modal-supply">—</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span>Your Balance</span>
+                    <span id="modal-balance">—</span>
+                </div>
+            </div>
+            <p class="modal-warning" id="modal-ticket-warning"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-cancel" id="modal-cancel">Cancel</button>
+            <button class="btn-confirm" id="modal-confirm">
+                <i class="fas fa-check"></i> Purchase
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
