@@ -1,9 +1,8 @@
 /* ============================================
    fd_dealership | style.css
    FlamCity — Purple/Blue flame theme
+   Fonts: system stack only (no external CDN)
    ============================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
 
 * {
     margin: 0;
@@ -35,7 +34,7 @@
 }
 
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     background: transparent;
     color: var(--text-primary);
     overflow: hidden;
@@ -98,7 +97,7 @@ body {
 }
 
 .header-info h1 {
-    font-family: 'Rajdhani', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 22px;
     font-weight: 700;
     background: linear-gradient(90deg, var(--purple-light), var(--blue-light));
@@ -237,7 +236,7 @@ body {
     border-radius: 8px;
     color: var(--text-secondary);
     font-size: 13px;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     cursor: pointer;
     transition: all 0.2s;
     text-align: left;
@@ -267,7 +266,7 @@ body {
     border-radius: 8px;
     color: var(--text-primary);
     font-size: 13px;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     cursor: pointer;
     outline: none;
 }
@@ -402,7 +401,7 @@ body {
 .tier-apex     .tier-badge { background: rgba(123,47,190,0.15);  color: var(--purple-light); }
 
 .card-label {
-    font-family: 'Rajdhani', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 17px;
     font-weight: 700;
     color: var(--text-primary);
@@ -495,7 +494,7 @@ body {
 }
 
 .modal-header h2 {
-    font-family: 'Rajdhani', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 20px;
     font-weight: 700;
     color: var(--text-primary);
@@ -504,7 +503,7 @@ body {
 .modal-body { padding: 24px; }
 
 #modal-vehicle-name {
-    font-family: 'Rajdhani', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     font-size: 22px;
     font-weight: 700;
     color: var(--text-primary);
@@ -553,7 +552,7 @@ body {
     border-radius: 8px;
     color: var(--text-secondary);
     font-size: 14px;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     cursor: pointer;
     transition: all 0.2s;
 }
@@ -572,7 +571,7 @@ body {
     color: white;
     font-size: 14px;
     font-weight: 600;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     cursor: pointer;
     transition: all 0.2s;
     display: flex;

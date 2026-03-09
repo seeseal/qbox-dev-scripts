@@ -1,30 +1,73 @@
 -- ============================================
 --  fd_dealership | client.lua
---  Handles interaction and UI communication
+--  Handles NPC, blip, interaction and UI
 -- ============================================
 
 local isUIOpen = false
 
 -- ============================================
---  Target Zone
---  Interaction point at dealership entrance
+--  Map Blip
+-- ============================================
+
+CreateThread(function()
+    local blip = AddBlipForCoord(Config.Location.x, Config.Location.y, Config.Location.z)
+    SetBlipSprite(blip, 225)          -- car dealership icon
+    SetBlipDisplay(blip, 4)
+    SetBlipScale(blip, 0.8)
+    SetBlipColour(blip, 27)           -- purple
+    SetBlipAsShortRange(blip, true)
+    BeginTextCommandSetBlipName("STRING")
+    AddTextComponentString(Config.DealershipName)
+    EndTextCommandSetBlipName(blip)
+end)
+
+-- ============================================
+--  Salesperson NPC
+--  Spawns a ped at the dealership entrance.
+--  ox_target is attached to the ped so the
+--  player presses E directly on the NPC.
 -- ============================================
 
 CreateThread(function()
     Wait(2000)
 
-    exports.ox_target:addSphereZone({
-        coords  = Config.Location,
-        radius  = 5.0,
-        options = {
-            {
-                label    = "Browse " .. Config.DealershipName,
-                icon     = "fas fa-car",
-                onSelect = function()
-                    if isUIOpen then return end
-                    TriggerServerEvent('fd_dealership:server:getCatalog')
-                end
-            }
+    local model = GetHashKey("s_m_m_autoshop_01") -- car salesman ped model
+    RequestModel(model)
+    while not HasModelLoaded(model) do
+        Wait(100)
+    end
+
+    local ped = CreatePed(
+        4,
+        model,
+        Config.Location.x,
+        Config.Location.y,
+        Config.Location.z - 1.0,
+        Config.Location.w,
+        false,
+        true
+    )
+
+    -- Make ped permanent and non-threatening
+    SetEntityInvincible(ped, true)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    SetPedDiesWhenInjured(ped, false)
+    FreezeEntityPosition(ped, true)
+    SetPedCanRagdoll(ped, false)
+    TaskStartScenarioInPlace(ped, "WORLD_HUMAN_CLIPBOARD", 0, true)
+
+    SetModelAsNoLongerNeeded(model)
+
+    -- Attach ox_target to the ped
+    exports.ox_target:addLocalEntity(ped, {
+        {
+            label    = "Browse " .. Config.DealershipName,
+            icon     = "fas fa-car",
+            distance = 2.5,
+            onSelect = function()
+                if isUIOpen then return end
+                TriggerServerEvent('fd_dealership:server:getCatalog')
+            end
         }
     })
 end)
@@ -71,13 +114,11 @@ RegisterNetEvent('fd_dealership:client:spawnVehicle', function(vehicleModel, pla
     local spawnPoint = Config.SpawnPoint
     local model      = GetHashKey(vehicleModel)
 
-    -- Load model
     RequestModel(model)
     while not HasModelLoaded(model) do
         Wait(100)
     end
 
-    -- Spawn at dealership spawn point
     local vehicle = CreateVehicle(
         model,
         spawnPoint.x,
@@ -88,21 +129,15 @@ RegisterNetEvent('fd_dealership:client:spawnVehicle', function(vehicleModel, pla
         false
     )
 
-    -- Set plate
     SetVehicleNumberPlateText(vehicle, plate)
 
-    -- Wait for entity
     while not DoesEntityExist(vehicle) do
         Wait(100)
     end
 
-    -- Put player in driver seat
     SetPedIntoVehicle(PlayerPedId(), vehicle, -1)
-
-    -- Free model memory
     SetModelAsNoLongerNeeded(model)
 
-    -- Notify player
     lib.notify({
         type        = 'success',
         title       = 'FlameDrive Motors',
@@ -143,12 +178,3 @@ CreateThread(function()
 end)
 
 print("^2[fd_dealership] Client loaded.^0")
-```
-
----
-
-Replace all three files completely, save, and push.
-
-Commit message:
-```
-clean rewrite config client server fd_dealership

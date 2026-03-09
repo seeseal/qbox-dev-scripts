@@ -10,9 +10,8 @@ Config = {}
 --  Update these once MLO is purchased
 -- ============================================
 
-Config.Location   = vector3(0.0, 0.0, 0.0)
-Config.Heading    = 0.0
-Config.SpawnPoint = vector4(0.0, 0.0, 0.0, 0.0)
+Config.Location   = vec4(-951.06, -495.1, 35.84, 224.23)
+Config.SpawnPoint = vec4(-947.67, -496.79, 35.64, 296.36)
 
 -- ============================================
 --  Dealership Info

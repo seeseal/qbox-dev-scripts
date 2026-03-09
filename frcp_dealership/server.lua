@@ -12,7 +12,7 @@ local QBX = exports.qbx_core
 local soldCounts = {}
 
 local function loadSoldCounts()
-    MySQL.query('SELECT model, sold FROM fd_dealership_sold', {}, function(result)
+    exports.oxmysql:query('SELECT model, sold FROM fd_dealership_sold', {}, function(result)
         if result then
             for _, row in ipairs(result) do
                 soldCounts[row.model] = row.sold
@@ -28,7 +28,7 @@ end
 
 local function incrementSoldCount(model)
     soldCounts[model] = (soldCounts[model] or 0) + 1
-    MySQL.update(
+    exports.oxmysql:update(
         'INSERT INTO fd_dealership_sold (model, sold) VALUES (?, 1) ON DUPLICATE KEY UPDATE sold = sold + 1',
         { model }
     )
@@ -46,7 +46,7 @@ local function getVehicleConfig(model)
 end
 
 local function playerOwnsVehicle(citizenid, model, cb)
-    MySQL.query(
+    exports.oxmysql:query(
         'SELECT id FROM player_vehicles WHERE citizenid = ? AND vehicle = ?',
         { citizenid, model },
         function(result)
@@ -81,7 +81,7 @@ end
 local function finalizePurchase(src, citizenid, vehicle)
     local plate = generatePlate()
 
-    MySQL.insert(
+    exports.oxmysql:insert(
         'INSERT INTO player_vehicles (citizenid, vehicle, hash, mods, plate, garage, fuel, engine, body, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         {
             citizenid,
@@ -263,9 +263,7 @@ end)
 -- ============================================
 
 AddEventHandler('onResourceStart', function(resourceName)
-    if resourceName == GetCurrentResourceName() then
-        loadSoldCounts()
-    end
+    if GetCurrentResourceName() ~= resourceName then return end
+    print('[fd_dealership] Server loaded.')
+    loadSoldCounts()
 end)
-
-print("^2[fd_dealership] Server loaded.^0")
