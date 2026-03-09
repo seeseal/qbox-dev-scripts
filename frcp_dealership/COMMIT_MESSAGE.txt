@@ -1,0 +1,40 @@
+feat(frcp_dealership): v2.0.0 — Job System, Society Fund, Test Drives
+
+## What changed
+
+Upgraded frcp_dealership from a standalone vehicle store into a fully
+functional job with roles, on-duty system, shared stash, changing room,
+society fund with auto tax split, and timed test drives.
+
+## New files
+- server/job.lua        — hire, fire, promote, demote (boss-only, Discord-logged)
+- server/society.lua    — fund balance, auto-deposit on sale, withdrawal with cap
+- server/testdrive.lua  — server-side drive tracking, disconnect cleanup
+- client/job.lua        — clock-in/out zone, stash zone, changing room, boss desk
+- client/testdrive.lua  — timer HUD, boundary check every second, auto-recall
+- sql/v2_upgrade.sql    — creates frcp_dealership_society + frcp_dealership_transactions
+- README.md             — full install guide, feature docs, testing checklist
+- CHANGELOG.md          — full version history
+
+## Modified files
+- fxmanifest.lua        — bumped to v2.0.0, new file declarations, ox_inventory dep
+- config.lua            — added job grades, society %, tax %, all new coord keys
+- server/main.lua       — finalizePurchase now fires depositSale after DB insert
+- client/main.lua       — new NUI callbacks for job actions
+- html/index.html       — tab bar + employee panel + GM office + two new modals
+- html/style.css        — tab bar, job panel, boss panel, society balance styles
+- html/script.js        — tab switching, society fund UI, staff modal logic
+
+## Breaking changes
+- Requires sql/v2_upgrade.sql to be run before starting (new tables)
+- Requires flamedrive job to be registered in qbx_core before starting
+- config.lua has new required keys — see README.md § Configuration
+
+## Commands added
+- /fdstaff            — employees: list online staff
+- /endtestdrive [id]  — employees: force-end a customer test drive
+
+## Tested on
+- Qbox latest, ox_lib latest, ox_inventory latest, ox_target latest
+- oxmysql + MariaDB (database: qbox_dev)
+- Windows dev server / Mac editor workflow

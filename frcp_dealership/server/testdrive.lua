@@ -20,6 +20,48 @@ local QBX = exports.qbx_core
 local activeTestDrives = {}
 
 -- ============================================
+--  Self Test Drive
+--  Called directly from the confirm modal.
+--  Anyone can start — no employee required.
+--  Validates model exists in catalog,
+--  prevents double test drives.
+-- ============================================
+
+RegisterNetEvent('frcp_dealership:server:startSelfTestDrive', function(model)
+    local src = source
+
+    -- Prevent double test drives
+    if activeTestDrives[src] then
+        TriggerClientEvent('ox_lib:notify', src, {
+            type = 'error', description = 'You already have an active test drive running.'
+        })
+        return
+    end
+
+    -- Validate model is in catalog
+    local vehicleFound = false
+    for _, v in ipairs(Config.Vehicles) do
+        if v.model == model then vehicleFound = true; break end
+    end
+    if not vehicleFound then
+        TriggerClientEvent('ox_lib:notify', src, { type = 'error', description = 'Invalid vehicle.' })
+        return
+    end
+
+    -- Register drive server-side
+    activeTestDrives[src] = {
+        model     = model,
+        startTime = os.time(),
+        self      = true,
+    }
+
+    -- Tell client to spawn the maxed vehicle and start timer
+    TriggerClientEvent('frcp_dealership:client:beginTestDrive', src, model, Config.TestDriveDuration)
+
+    print("^2[frcp_dealership] Self test drive started: " .. model .. " for player " .. src .. "^0")
+end)
+
+-- ============================================
 --  Start Test Drive
 --  Called by client when salesperson approves
 -- ============================================

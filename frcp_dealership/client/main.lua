@@ -147,6 +147,24 @@ RegisterNetEvent('frcp_dealership:client:showStaffList', function(staffText, cou
     })
 end)
 
+
+RegisterNetEvent('frcp_dealership:client:receiveSalesStats', function(data)
+    SendNUIMessage({
+        action     = "receiveSalesStats",
+        units      = data.units,
+        revenue    = data.revenue,
+        commission = data.commission,
+        period     = data.period,
+    })
+end)
+
+RegisterNetEvent('frcp_dealership:client:receiveLeaderboard', function(data)
+    SendNUIMessage({
+        action  = "receiveLeaderboard",
+        entries = data.entries,
+    })
+end)
+
 -- ============================================
 --  NUI Callbacks
 -- ============================================
@@ -180,6 +198,25 @@ RegisterNUICallback('startTestDrive', function(data, cb)
     cb('ok')
     -- data.model = vehicle model, data.customerId = server ID of customer
     TriggerServerEvent('frcp_dealership:server:startTestDrive', data.model, data.customerId)
+end)
+
+-- Self test drive — anyone can start from the confirm modal
+RegisterNUICallback('startSelfTestDrive', function(data, cb)
+    cb('ok')
+    TriggerServerEvent('frcp_dealership:server:startSelfTestDrive', data.model)
+end)
+
+
+-- GM: get sales stats
+RegisterNUICallback('getSalesStats', function(data, cb)
+    cb('ok')
+    TriggerServerEvent('frcp_dealership:server:getSalesStats', data.period or 'today')
+end)
+
+-- GM: get leaderboard
+RegisterNUICallback('getSalesLeaderboard', function(_, cb)
+    cb('ok')
+    TriggerServerEvent('frcp_dealership:server:getSalesLeaderboard')
 end)
 
 -- Boss: hire (target must be nearby, we use ox_target in job.lua client side)

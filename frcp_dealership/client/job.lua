@@ -110,7 +110,7 @@ local function clockIn()
     end
 
     isOnDuty = true
-    exports.qbx_core:SetDuty(true)
+    TriggerServerEvent('frcp_dealership:server:setDuty', true)
 
     lib.notify({
         type        = 'success',
@@ -131,7 +131,7 @@ local function clockOut()
     end
 
     isOnDuty = false
-    exports.qbx_core:SetDuty(false)
+    TriggerServerEvent('frcp_dealership:server:setDuty', false)
 
     -- Auto-remove uniform when clocking out
     if savedOutfit then restoreOutfit() end

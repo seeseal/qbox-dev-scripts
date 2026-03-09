@@ -31,7 +31,7 @@ Config.SpawnPoint = vec4(-947.67, -496.79, 35.64, 296.36)
 -- ============================================
 
 Config.TabletStands = {
-    [1] = { coords = vec4(-950.02, -483.56, 35.66, 25.0), label = "Browse Vehicles — Stand 1" },
+    [1] = { coords = vec4(-951.06, -495.1,  35.84, 224.23), label = "Browse Vehicles — Stand 1" },
     [2] = { coords = vec4(-953.00, -493.5,  35.84, 200.00), label = "Browse Vehicles — Stand 2" },
     [3] = { coords = vec4(-955.00, -495.0,  35.84, 180.00), label = "Browse Vehicles — Stand 3" },
     [4] = { coords = vec4(-953.50, -497.0,  35.84, 160.00), label = "Browse Vehicles — Stand 4" },
@@ -116,9 +116,9 @@ Config.GovBankAccount  = "gov_taxes"  -- !! CHANGE ME !!
 -- ============================================
 
 Config.TestDriveDuration = 300          -- seconds (300 = 5 minutes)
-Config.TestDriveRadius   = 500.0        -- metres from spawn before auto-recall
-Config.TestDriveStart    = vec4(-943.0, -490.0, 35.64, 296.36)  -- !! CHANGE ME !!
-Config.TestDriveReturn   = vec3(-951.06, -495.1, 35.84)         -- !! CHANGE ME !! where player returns
+Config.TestDriveRadius   = 3000000.0        -- metres from return point before warning (!! CHANGE ME !!)
+Config.TestDriveStart    = vec4(-976.52, -469.84, 35.28, 56.0)   -- !! CHANGE ME !! road near dealership
+Config.TestDriveReturn   = vec3(-951.06, -495.1,  35.84)          -- !! CHANGE ME !! where player returns
 
 -- ============================================
 --  EMPLOYEE LOCATIONS
@@ -196,22 +196,74 @@ Config.Tiers = {
 
 Config.Vehicles = {
 
-    -- STANDARD TIER
-    { label="Sentinel",          model="sentinel",    tier="standard", price=25000,  limit=-1, category="Sedans",      description="A reliable everyday sedan." },
-    { label="Sultan",            model="sultan",      tier="standard", price=35000,  limit=-1, category="Sports",      description="A popular sports car for city driving." },
-    { label="Granger",           model="granger",     tier="standard", price=45000,  limit=-1, category="SUVs",        description="A sturdy full-size SUV." },
-    { label="Rumpo",             model="rumpo",       tier="standard", price=20000,  limit=-1, category="Trucks",      description="A practical van for everyday use." },
-    { label="Bati 801",          model="bati",        tier="standard", price=15000,  limit=-1, category="Motorcycles", description="A fast and agile motorcycle." },
+    -- ══════════════════════════════════════════
+    --  STANDARD TIER
+    --  Cash only. No ticket required.
+    -- ══════════════════════════════════════════
 
-    -- ELITE TIER
-    { label="Dewbauchee Exemplar", model="exemplar",  tier="elite",    price=180000, limit=20, category="Sports",      description="An imported luxury sports coupe." },
-    { label="Ocelot Jackal",       model="jackal",    tier="elite",    price=155000, limit=20, category="Sports",      description="Sleek and refined. Built for the road." },
-    { label="Ubermacht Oracle XS", model="oraclexs",  tier="elite",    price=200000, limit=15, category="SUVs",        description="Premium imported SUV with full luxury spec." },
+    -- Sedans
+    { label="Sentinel",              model="sentinel",      tier="standard", price=25000,  limit=-1, category="Sedans",      description="A reliable everyday sedan." },
+    { label="Tailgater S",           model="tailgater2",    tier="standard", price=38000,  limit=-1, category="Sedans",      description="Executive luxury meets daily practicality." },
+    { label="Schafter V12",          model="schafter3",     tier="standard", price=55000,  limit=-1, category="Sedans",      description="A powerful four-door with sport credentials." },
 
-    -- APEX TIER
-    { label="Grotti Itali RSX",  model="italirsx",    tier="apex",     price=0,      limit=10, category="Supercars",   description="The pinnacle of Italian engineering." },
-    { label="Pegassi Torero XO", model="toreoxo",     tier="apex",     price=0,      limit=8,  category="Supercars",   description="A hypercar built for those who demand the best." },
-    { label="Pfister 811",       model="pfister811",  tier="apex",     price=0,      limit=5,  category="Supercars",   description="German precision. Server-wide limit of 5 units." },
+    -- Sports
+    { label="Sultan",                model="sultan",        tier="standard", price=35000,  limit=-1, category="Sports",      description="A popular sports car for city driving." },
+    { label="Elegy RH8",             model="elegy",         tier="standard", price=48000,  limit=-1, category="Sports",      description="Inspired by Japanese performance culture." },
+    { label="Banshee",               model="banshee",       tier="standard", price=62000,  limit=-1, category="Sports",      description="Two-seat muscle machine with raw power." },
+
+    -- SUVs
+    { label="Granger",               model="granger",       tier="standard", price=45000,  limit=-1, category="SUVs",        description="A sturdy full-size SUV." },
+    { label="Cavalcade",             model="cavalcade",     tier="standard", price=40000,  limit=-1, category="SUVs",        description="Premium American full-size SUV." },
+    { label="Radius",                model="radius",        tier="standard", price=52000,  limit=-1, category="SUVs",        description="Compact crossover with modern styling." },
+
+    -- Trucks
+    { label="Rumpo",                 model="rumpo",         tier="standard", price=20000,  limit=-1, category="Trucks",      description="A practical van for everyday use." },
+    { label="Bobcat XL",             model="bobcatxl",      tier="standard", price=28000,  limit=-1, category="Trucks",      description="Heavy-duty pickup for work and play." },
+    { label="Sandking SWB",          model="sandking2",     tier="standard", price=42000,  limit=-1, category="Trucks",      description="Short wheelbase monster truck." },
+
+    -- Motorcycles
+    { label="Bati 801",              model="bati",          tier="standard", price=15000,  limit=-1, category="Motorcycles", description="A fast and agile motorcycle." },
+    { label="Akuma",                 model="akuma",         tier="standard", price=18000,  limit=-1, category="Motorcycles", description="Lightweight Japanese superbike." },
+    { label="Hexer",                 model="hexer",         tier="standard", price=22000,  limit=-1, category="Motorcycles", description="Touring cruiser built for long runs." },
+
+    -- ══════════════════════════════════════════
+    --  ELITE TIER
+    --  Requires Elite Ticket + cash payment.
+    -- ══════════════════════════════════════════
+
+    -- Sports
+    { label="Dewbauchee Exemplar",   model="exemplar",      tier="elite",    price=180000, limit=20, category="Sports",      description="An imported luxury sports coupe." },
+    { label="Ocelot Jackal",         model="jackal",        tier="elite",    price=155000, limit=20, category="Sports",      description="Sleek and refined. Built for the road." },
+    { label="Übermacht Sentinel XS", model="sentinelxs",    tier="elite",    price=165000, limit=20, category="Sports",      description="Sport-tuned version of a modern icon." },
+    { label="Vapid Flash GT",        model="flashgt",       tier="elite",    price=175000, limit=15, category="Sports",      description="American muscle wrapped in European style." },
+
+    -- SUVs
+    { label="Übermacht Oracle XS",   model="oraclexs",      tier="elite",    price=200000, limit=15, category="SUVs",        description="Premium imported SUV with full luxury spec." },
+    { label="Gallivanter Baller ST", model="baller6",       tier="elite",    price=188000, limit=15, category="SUVs",        description="The preferred SUV of the city elite." },
+
+    -- Motorcycles
+    { label="Pegassi Reaper",        model="reaper",        tier="elite",    price=145000, limit=20, category="Motorcycles", description="Italian engineering meets raw performance." },
+    { label="Shitzu Hakuchou",       model="hakuchou",      tier="elite",    price=120000, limit=20, category="Motorcycles", description="A precision instrument for the open road." },
+
+    -- Sedans
+    { label="Enus Cognoscenti 55",   model="cognoscenti2",  tier="elite",    price=210000, limit=15, category="Sedans",      description="Hand-built British luxury saloon." },
+
+    -- ══════════════════════════════════════════
+    --  APEX TIER
+    --  Requires Apex Ticket. No cash cost IC.
+    --  Server-wide supply limits enforced.
+    -- ══════════════════════════════════════════
+
+    -- Supercars
+    { label="Grotti Itali RSX",      model="italirsx",      tier="apex",     price=0,      limit=10, category="Supercars",   description="The pinnacle of Italian engineering." },
+    { label="Pegassi Torero XO",     model="toreoxo",       tier="apex",     price=0,      limit=8,  category="Supercars",   description="A hypercar built for those who demand the best." },
+    { label="Pfister 811",           model="pfister811",    tier="apex",     price=0,      limit=5,  category="Supercars",   description="German precision. Server-wide limit of 5 units." },
+    { label="Overflod Tyrant",       model="tyrant",        tier="apex",     price=0,      limit=6,  category="Supercars",   description="Scandinavian hypercar. Rarer than rare." },
+    { label="Truffade Thrax",        model="thrax",         tier="apex",     price=0,      limit=6,  category="Supercars",   description="French hypercar engineering at its finest." },
+    { label="Pegassi Zorrusso",      model="zorrusso",      tier="apex",     price=0,      limit=8,  category="Supercars",   description="A supercar forged from obsession." },
+
+    -- Motorcycles (Apex)
+    { label="Pegassi Oppressor",     model="oppressor",     tier="apex",     price=0,      limit=10, category="Motorcycles", description="The most wanted bike in Los Santos." },
 }
 
 Config.Categories = { "Sedans", "Sports", "SUVs", "Supercars", "Motorcycles", "Trucks" }

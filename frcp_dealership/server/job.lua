@@ -1,5 +1,5 @@
 -- ============================================
---  frcp_dealership | server/job.lua  v2.1
+--  frcp_dealership | server/job.lua  v2.0
 --
 --  WHAT THIS FILE DOES (plain English):
 --  ─────────────────────────────────────
@@ -246,11 +246,11 @@ lib.addCommand('fdstaff', {
         return
     end
 
-    local players = GetPlayers()
+    local players = QBX:GetPlayers()
     local list    = {}
 
     for _, id in ipairs(players) do
-        local p = exports.qbx_core:GetPlayer(id)
+        local p = QBX:GetPlayer(id)
         if p and p.PlayerData.job and p.PlayerData.job.name == Config.JobName then
             local gradeData = Config.JobGrades[p.PlayerData.job.grade.level]
             table.insert(list, {
@@ -277,23 +277,82 @@ end)
 
 
 -- ============================================
---  Set Duty State
---  Called from client/job.lua on clock-in/out.
---  exports.qbx_core:SetDuty() does not exist
---  in Qbox — we set it server-side via
---  player.Functions.SetDuty() instead.
+--  /fdsales — all-time sales leaderboard
+--  Available to all employees + boss.
+--  Prints top 10 to their screen.
 -- ============================================
 
-RegisterNetEvent('frcp_dealership:server:setDuty', function(state)
-    local src    = source
-    local player = exports.qbx_core:GetPlayer(src)
-    if not player then return end
+lib.addCommand('fdsales', {
+    help       = 'View FlameDrive all-time sales leaderboard',
+    restricted = false,
+}, function(src)
+    local caller = exports.qbx_core:GetPlayer(src)
+    if not caller then return end
 
-    local job = player.PlayerData.job
-    if not job or job.name ~= Config.JobName then return end
+    if not caller.PlayerData.job or caller.PlayerData.job.name ~= Config.JobName then
+        TriggerClientEvent('ox_lib:notify', src, {
+            type = 'error', description = 'You are not a FlameDrive employee.'
+        })
+        return
+    end
 
-    player.Functions.SetDuty(state)
-    print("^2[frcp_dealership] " .. player.PlayerData.citizenid .. " duty set to: " .. tostring(state) .. "^0")
+    MySQL.query([[
+        SELECT citizenid, COUNT(*) as sales, SUM(price) as revenue
+        FROM frcp_dealership_sales_log
+        GROUP BY citizenid
+        ORDER BY sales DESC
+        LIMIT 10
+    ]], {}, function(result)
+        if not result or #result == 0 then
+            TriggerClientEvent('ox_lib:notify', src, {
+                type = 'inform', description = 'No sales have been recorded yet.'
+            })
+            return
+        end
+
+        -- Build text lines, resolve offline player names from DB async
+        local lines   = {}
+        local pending = #result
+        local medals  = { "🥇", "🥈", "🥉" }
+
+        for i, row in ipairs(result) do
+            local idx = i
+            MySQL.query(
+                "SELECT charinfo FROM players WHERE citizenid = ? LIMIT 1",
+                { row.citizenid },
+                function(r)
+                    local name = row.citizenid
+                    -- Try online first
+                    local p = exports.qbx_core:GetPlayerByCitizenId(row.citizenid)
+                    if p then
+                        local ci = p.PlayerData.charinfo
+                        name = ci.firstname .. " " .. ci.lastname
+                    elseif r and r[1] and r[1].charinfo then
+                        local ok, ci = pcall(json.decode, r[1].charinfo)
+                        if ok and ci then
+                            name = (ci.firstname or '') .. ' ' .. (ci.lastname or '')
+                        end
+                    end
+
+                    local medal = medals[idx] or (idx .. ".")
+                    local rev   = row.revenue and ("$" .. math.floor(row.revenue)) or "$0"
+                    lines[idx]  = medal .. " **" .. name .. "** — " ..
+                                  row.sales .. " sales · " .. rev
+
+                    pending = pending - 1
+                    if pending == 0 then
+                        -- Sort by index and join
+                        local text = ""
+                        for j = 1, #result do
+                            if lines[j] then text = text .. lines[j] .. "\n" end
+                        end
+                        TriggerClientEvent('frcp_dealership:client:showStaffList', src,
+                            text, #result)
+                    end
+                end
+            )
+        end
+    end)
 end)
 
 print("^2[frcp_dealership] server/job.lua loaded.^0")

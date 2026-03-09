@@ -5,7 +5,7 @@ lua54 'yes'
 name        'frcp_dealership'
 description 'FlameDrive Motors — Dealership Job System for Flame City'
 author      'Flame City Dev'
-version     '2.0.0'
+version     '2.1.1'
 
 dependencies {
     'qbx_core',
@@ -43,4 +43,6 @@ files {
     'html/style.css',
     'html/script.js',
     'html/fa-subset.css',
+    'html/img/*.jpg',
+    'html/img/*.png',
 }

@@ -167,6 +167,17 @@ function buildCategoryFilters(categories) {
         btn.addEventListener('click', function() { setFilter('category', cat, btn); });
         container.appendChild(btn);
     });
+
+    // Re-wire the static "All Categories" button — it's in HTML so its listener
+    // fires at page load before categories exist. Re-attach here to be safe.
+    var allBtn = document.querySelector('[data-filter="category"][data-value="all"]');
+    if (allBtn) {
+        allBtn.replaceWith(allBtn.cloneNode(true)); // remove old listener
+        var freshAllBtn = document.querySelector('[data-filter="category"][data-value="all"]');
+        freshAllBtn.addEventListener('click', function() {
+            setFilter('category', 'all', freshAllBtn);
+        });
+    }
 }
 
 // ── Filter & Sort ─────────────────────────
@@ -219,6 +230,18 @@ function renderVehicles() {
     vehicles.forEach(function(v) { grid.appendChild(buildVehicleCard(v)); });
 }
 
+// ── Vehicle preview image ────────────────────────────────────────────────────
+// FiveM NUI cannot reach external CDNs (all external fetches are blocked).
+// Images must be served from within the resource's html/ folder.
+// Place a file named {model}.jpg inside html/img/ for each vehicle.
+// e.g. html/img/sentinel.jpg, html/img/italirsx.jpg
+// If no image is found, the tier icon fallback is shown instead.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getVehicleImageUrl(model) {
+    return 'img/' + model.toLowerCase() + '.jpg';
+}
+
 function buildVehicleCard(vehicle) {
     var card = document.createElement('div');
     card.className = 'vehicle-card tier-' + vehicle.tier;
@@ -241,7 +264,19 @@ function buildVehicleCard(vehicle) {
         supplyDisplay = vehicle.remaining + ' / ' + vehicle.limit;
     }
 
+    // Build preview image — onerror swaps to fallback icon
+    var imgHtml =
+        '<div class="card-preview">' +
+            '<img src="' + getVehicleImageUrl(vehicle.model) + '" ' +
+                'alt="' + vehicle.label + '" ' +
+                'onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\';" />' +
+            '<div class="card-preview-fallback" style="display:none;">' +
+                '<i class="' + icon + '"></i>' +
+            '</div>' +
+        '</div>';
+
     card.innerHTML =
+        imgHtml +
         '<div class="card-top">' +
             '<div class="card-icon"><i class="' + icon + '"></i></div>' +
             '<span class="tier-badge">' + vehicle.tier + '</span>' +
@@ -287,14 +322,28 @@ document.getElementById('modal-cancel').addEventListener('click', function() {
     selectedVehicle = null;
 });
 
+document.getElementById('modal-testdrive').addEventListener('click', function() {
+    if (!selectedVehicle) return;
+    fetch('https://' + GetParentResourceName() + '/startSelfTestDrive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedVehicle.model })
+    });
+    document.getElementById('confirm-modal').classList.add('hidden');
+    selectedVehicle = null;
+});
+
 document.getElementById('modal-confirm').addEventListener('click', function() {
     if (!selectedVehicle) return;
+    // Hide modal immediately — server will close full UI after purchase completes
+    // Do NOT call closeUI() here — that would close the UI before the server
+    // has a chance to process the purchase and trigger spawnVehicle
+    document.getElementById('confirm-modal').classList.add('hidden');
     fetch('https://' + GetParentResourceName() + '/purchaseVehicle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: selectedVehicle.model, tier: selectedVehicle.tier, price: selectedVehicle.price, label: selectedVehicle.label })
     });
-    document.getElementById('confirm-modal').classList.add('hidden');
     selectedVehicle = null;
 });
 
@@ -369,9 +418,119 @@ document.getElementById('staff-modal-confirm').addEventListener('click', functio
     staffModalAction = null;
 });
 
+
+// ── Sales Stats + Leaderboard ─────────────────────────────────────────────────
+
+var currentStatsPeriod = 'today';
+
+function loadSalesStats(period) {
+    currentStatsPeriod = period || 'today';
+
+    // Update toggle buttons
+    ['today', 'week', 'alltime'].forEach(function(p) {
+        var btn = document.getElementById('stats-period-' + p);
+        if (btn) btn.classList.toggle('active', p === currentStatsPeriod);
+    });
+
+    // Show loading
+    document.getElementById('stat-units').textContent   = '—';
+    document.getElementById('stat-revenue').textContent = '—';
+    document.getElementById('stat-commission').textContent = '—';
+
+    fetch('https://' + GetParentResourceName() + '/getSalesStats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period: currentStatsPeriod })
+    });
+}
+
+function loadLeaderboard() {
+    document.getElementById('leaderboard-content').innerHTML =
+        '<div class="stats-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+    fetch('https://' + GetParentResourceName() + '/getSalesLeaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    });
+}
+
+// Receive stats from server
+window.addEventListener('message', function(event) {
+    if (event.data.action === 'receiveSalesStats') {
+        var d = event.data;
+        var label = { today: 'today', week: 'this week', alltime: 'all time' }[currentStatsPeriod] || '';
+        document.getElementById('stat-units').textContent        = d.units || 0;
+        document.getElementById('stat-units-sub').textContent    = 'vehicles sold ' + label;
+        document.getElementById('stat-revenue').textContent      = '$' + (d.revenue || 0).toLocaleString();
+        document.getElementById('stat-revenue-sub').textContent  = 'gross revenue ' + label;
+        document.getElementById('stat-commission').textContent   = '$' + (d.commission || 0).toLocaleString();
+        document.getElementById('stat-commission-sub').textContent = 'paid out ' + label;
+    }
+
+    if (event.data.action === 'receiveLeaderboard') {
+        var entries = event.data.entries || [];
+        if (entries.length === 0) {
+            document.getElementById('leaderboard-content').innerHTML =
+                '<div class="stats-loading">No sales recorded yet.</div>';
+            return;
+        }
+        var rankClasses = ['gold', 'silver', 'bronze'];
+        var rows = entries.map(function(e, i) {
+            var rankClass = rankClasses[i] ? ' class="lb-rank ' + rankClasses[i] + '"' : ' class="lb-rank"';
+            var medal     = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
+            return '<tr>' +
+                '<td' + rankClass + '>' + medal + '</td>' +
+                '<td><div class="lb-name">' + (e.name || e.citizenid) + '</div>' +
+                    '<div class="lb-grade">' + (e.grade || '') + '</div></td>' +
+                '<td class="lb-sales">' + e.sales + ' sales</td>' +
+                '<td class="lb-revenue">$' + (e.revenue || 0).toLocaleString() + '</td>' +
+            '</tr>';
+        }).join('');
+        document.getElementById('leaderboard-content').innerHTML =
+            '<table class="leaderboard-table">' +
+                '<thead><tr>' +
+                    '<th>#</th><th>Employee</th><th>Sales</th><th>Revenue</th>' +
+                '</tr></thead>' +
+                '<tbody>' + rows + '</tbody>' +
+            '</table>';
+    }
+});
+
+document.getElementById('btn-refresh-stats').addEventListener('click', function() {
+    loadSalesStats(currentStatsPeriod);
+    loadLeaderboard();
+});
+
+// Auto-load when boss tab opens
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        if (btn.dataset.tab === 'boss') {
+            setTimeout(function() {
+                loadSalesStats('today');
+                loadLeaderboard();
+            }, 100);
+        }
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── Close UI ──────────────────────────────
 
 document.getElementById('close-btn').addEventListener('click', closeUI);
+
+// ESC or Backspace closes UI — NUI intercepts keys so we handle it here
+// and fire the same closeUI NUI callback that the Lua ESC thread listens for
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' || e.key === 'Backspace') {
+        // Don't close if user is typing in an input field
+        if (document.activeElement && (
+            document.activeElement.tagName === 'INPUT' ||
+            document.activeElement.tagName === 'TEXTAREA'
+        )) return;
+        closeUI();
+    }
+});
 
 function closeUI() {
     document.getElementById('dealership-ui').classList.add('hidden');
@@ -383,9 +542,21 @@ function closeUI() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
     });
 
-    activeTier     = 'all';
-    activeCategory = 'all';
+    // Reset state
+    activeTier      = 'all';
+    activeCategory  = 'all';
+    activeSort      = 'default';
     selectedVehicle = null;
+
+    // Reset filter button active states so next open starts clean
+    document.querySelectorAll('[data-filter="tier"]').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.value === 'all');
+    });
+    document.querySelectorAll('[data-filter="category"]').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.value === 'all');
+    });
+    var sortSelect = document.getElementById('sort-select');
+    if (sortSelect) sortSelect.value = 'default';
 }
 
 console.log('[FD] script.js v2.0 fully loaded.');

@@ -227,6 +227,12 @@ local function finalizePurchase(src, citizenid, vehicle, tierConfig, standIndex)
                 -- Supply tracking
                 incrementSoldCount(vehicle.model)
 
+                -- Log sale for leaderboard + stats
+                MySQL.insert(
+                    'INSERT INTO frcp_dealership_sales_log (citizenid, model, label, tier, price, sold_at) VALUES (?, ?, ?, ?, ?, ?)',
+                    { citizenid, vehicle.model, vehicle.label, vehicle.tier, vehicle.price, os.time() }
+                )
+
                 -- Cooldown for Elite
                 if vehicle.tier == 'elite' then
                     saveCooldown(citizenid, vehicle.model)
@@ -255,6 +261,13 @@ local function finalizePurchase(src, citizenid, vehicle, tierConfig, standIndex)
                         if commissionPct > 0 then
                             commissionAmt = math.floor(vehicle.price * (commissionPct / 100))
                             empPlayer.Functions.AddMoney('bank', commissionAmt, 'flamedrive-commission')
+
+                            -- Log commission for stats queries
+                            MySQL.insert(
+                                'INSERT INTO frcp_dealership_transactions (type, amount, citizenid, note, created_at) VALUES (?, ?, ?, ?, ?)',
+                                { 'commission', commissionAmt, employeeCid,
+                                  'Commission on ' .. vehicle.label, os.time() }
+                            )
 
                             TriggerClientEvent('ox_lib:notify', empId, {
                                 type        = 'success',
@@ -508,6 +521,139 @@ RegisterNetEvent('frcp_dealership:server:getCatalog', function(standIndex)
     end)
 end)
 
+
+-- ============================================
+--  Sales Stats (for GM panel)
+--  Returns units sold, revenue, commission
+--  for a given period: today / week / alltime
+-- ============================================
+
+RegisterNetEvent('frcp_dealership:server:getSalesStats', function(period)
+    local src  = source
+    local now  = os.time()
+    local from = 0
+
+    if period == 'today' then
+        -- midnight today (server local time)
+        local t = os.date('*t', now)
+        t.hour = 0; t.min = 0; t.sec = 0
+        from = os.time(t)
+    elseif period == 'week' then
+        from = now - (7 * 24 * 60 * 60)
+    end
+    -- alltime: from = 0 (all records)
+
+    local query = from > 0
+        and 'SELECT COUNT(*) as units, SUM(price) as revenue FROM frcp_dealership_sales_log WHERE sold_at >= ?'
+        or  'SELECT COUNT(*) as units, SUM(price) as revenue FROM frcp_dealership_sales_log'
+
+    local params = from > 0 and { from } or {}
+
+    MySQL.query(query, params, function(result)
+        local units   = (result and result[1] and result[1].units)   or 0
+        local revenue = (result and result[1] and result[1].revenue) or 0
+
+        -- Also pull commission paid from transactions table
+        local commQuery = from > 0
+            and "SELECT SUM(amount) as total FROM frcp_dealership_transactions WHERE type = 'commission' AND created_at >= ?"
+            or  "SELECT SUM(amount) as total FROM frcp_dealership_transactions WHERE type = 'commission'"
+
+        MySQL.query(commQuery, params, function(commResult)
+            local commission = (commResult and commResult[1] and commResult[1].total) or 0
+            TriggerClientEvent('frcp_dealership:client:receiveSalesStats', src, {
+                units      = units,
+                revenue    = revenue,
+                commission = commission,
+                period     = period,
+            })
+        end)
+    end)
+end)
+
+-- ============================================
+--  Sales Leaderboard
+--  Top 10 employees by total sales count.
+--  Joins sales_log with Qbox player data to
+--  get character names.
+-- ============================================
+
+RegisterNetEvent('frcp_dealership:server:getSalesLeaderboard', function()
+    local src = source
+
+    MySQL.query([[
+        SELECT citizenid, COUNT(*) as sales, SUM(price) as revenue
+        FROM frcp_dealership_sales_log
+        GROUP BY citizenid
+        ORDER BY sales DESC
+        LIMIT 10
+    ]], {}, function(result)
+        if not result or #result == 0 then
+            TriggerClientEvent('frcp_dealership:client:receiveLeaderboard', src, { entries = {} })
+            return
+        end
+
+        local entries = {}
+        for _, row in ipairs(result) do
+            -- Try to get character name from players table
+            local name = row.citizenid
+            local p    = exports.qbx_core:GetPlayerByCitizenId(row.citizenid)
+            if p then
+                local ci   = p.PlayerData.charinfo
+                name       = ci.firstname .. " " .. ci.lastname
+                local job  = p.PlayerData.job
+                local grade = job and job.name == Config.JobName
+                    and Config.JobGrades[job.grade.level]
+                    and Config.JobGrades[job.grade.level].label or ""
+                table.insert(entries, {
+                    citizenid = row.citizenid,
+                    name      = name,
+                    grade     = grade,
+                    sales     = row.sales,
+                    revenue   = row.revenue or 0,
+                })
+            else
+                -- Player offline — look up name from DB
+                table.insert(entries, {
+                    citizenid = row.citizenid,
+                    name      = row.citizenid,
+                    grade     = "Offline",
+                    sales     = row.sales,
+                    revenue   = row.revenue or 0,
+                })
+            end
+        end
+
+        -- Async name lookup for offline players
+        local pending = 0
+        for i, entry in ipairs(entries) do
+            if entry.name == entry.citizenid then
+                pending = pending + 1
+                local idx = i
+                MySQL.query(
+                    "SELECT charinfo FROM players WHERE citizenid = ? LIMIT 1",
+                    { entry.citizenid },
+                    function(r)
+                        if r and r[1] and r[1].charinfo then
+                            local ok, ci = pcall(json.decode, r[1].charinfo)
+                            if ok and ci then
+                                entries[idx].name = (ci.firstname or '') .. ' ' .. (ci.lastname or '')
+                            end
+                        end
+                        pending = pending - 1
+                        if pending == 0 then
+                            TriggerClientEvent('frcp_dealership:client:receiveLeaderboard', src, { entries = entries })
+                        end
+                    end
+                )
+            end
+        end
+
+        if pending == 0 then
+            TriggerClientEvent('frcp_dealership:client:receiveLeaderboard', src, { entries = entries })
+        end
+    end)
+end)
+
 -- ============================================
 --  Clean up session if player disconnects
 --  while the UI is open
@@ -545,6 +691,21 @@ end)
 -- ============================================
 
 MySQL.ready(function()
+    MySQL.query([[
+        CREATE TABLE IF NOT EXISTS `frcp_dealership_sales_log` (
+            `id`         INT(11)      NOT NULL AUTO_INCREMENT,
+            `citizenid`  VARCHAR(50)  NOT NULL,
+            `model`      VARCHAR(50)  NOT NULL,
+            `label`      VARCHAR(100) NOT NULL DEFAULT '',
+            `tier`       VARCHAR(20)  NOT NULL DEFAULT 'standard',
+            `price`      BIGINT       NOT NULL DEFAULT 0,
+            `sold_at`    INT(11)      NOT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_citizenid` (`citizenid`),
+            KEY `idx_sold_at`   (`sold_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]], {})
+
     MySQL.query([[
         CREATE TABLE IF NOT EXISTS `frcp_dealership_cooldowns` (
             `citizenid`    VARCHAR(50) NOT NULL,

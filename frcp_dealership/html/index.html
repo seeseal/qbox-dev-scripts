@@ -214,6 +214,43 @@
                 </div>
             </div>
 
+
+            <div class="job-section">
+                <h2 class="section-title"><i class="fas fa-chart-line"></i> Sales Stats</h2>
+                <div class="stats-period-toggle">
+                    <button class="period-btn active" id="stats-period-today" onclick="loadSalesStats('today')">Today</button>
+                    <button class="period-btn" id="stats-period-week" onclick="loadSalesStats('week')">This Week</button>
+                    <button class="period-btn" id="stats-period-alltime" onclick="loadSalesStats('alltime')">All Time</button>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-label">Units Sold</span>
+                        <span class="stat-value" id="stat-units">—</span>
+                        <span class="stat-sub" id="stat-units-sub">loading...</span>
+                    </div>
+                    <div class="stat-card highlight">
+                        <span class="stat-label">Total Revenue</span>
+                        <span class="stat-value" id="stat-revenue">—</span>
+                        <span class="stat-sub" id="stat-revenue-sub">loading...</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Commission Paid</span>
+                        <span class="stat-value" id="stat-commission">—</span>
+                        <span class="stat-sub" id="stat-commission-sub">loading...</span>
+                    </div>
+                </div>
+                <button class="boss-btn" id="btn-refresh-stats" style="margin-top:4px;">
+                    <i class="fas fa-sync"></i> Refresh
+                </button>
+            </div>
+
+            <div class="job-section">
+                <h2 class="section-title"><i class="fas fa-trophy"></i> Sales Leaderboard</h2>
+                <div id="leaderboard-content" class="stats-loading">
+                    <i class="fas fa-spinner fa-spin"></i> Loading leaderboard...
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -250,6 +287,9 @@
         </div>
         <div class="modal-footer">
             <button class="btn-cancel" id="modal-cancel">Cancel</button>
+            <button class="btn-testdrive" id="modal-testdrive">
+                <i class="fas fa-road"></i> Test Drive
+            </button>
             <button class="btn-confirm" id="modal-confirm">
                 <i class="fas fa-check"></i> Purchase
             </button>
