@@ -1,18 +1,16 @@
 -- ============================================
 --  fd_dealership | client.lua
---  Handles player interaction and UI communication
+--  Handles interaction and UI communication
 -- ============================================
 
 local isUIOpen = false
 
 -- ============================================
 --  Target Zone
---  Creates the interaction point at the dealership
---  Player walks up and presses E to open the UI
+--  Interaction point at dealership entrance
 -- ============================================
 
 CreateThread(function()
-    -- Wait for ox_target to load
     Wait(2000)
 
     exports.ox_target:addSphereZone({
@@ -20,11 +18,10 @@ CreateThread(function()
         radius  = 5.0,
         options = {
             {
-                label   = "Browse " .. Config.DealershipName,
-                icon    = "fas fa-car",
+                label    = "Browse " .. Config.DealershipName,
+                icon     = "fas fa-car",
                 onSelect = function()
                     if isUIOpen then return end
-                    -- Request catalog from server
                     TriggerServerEvent('fd_dealership:server:getCatalog')
                 end
             }
@@ -34,28 +31,24 @@ end)
 
 -- ============================================
 --  Open UI
---  Server sends catalog data back after getCatalog
 -- ============================================
 
 RegisterNetEvent('fd_dealership:client:openUI', function(data)
     if isUIOpen then return end
     isUIOpen = true
 
-    -- Send data to NUI
     SetNuiFocus(true, true)
     SendNUIMessage({
-        action  = "openDealership",
-        data    = data,
-        tiers   = Config.Tiers,
-        categories = Config.Categories,
+        action         = "openDealership",
+        data           = data,
+        tiers          = Config.Tiers,
+        categories     = Config.Categories,
         dealershipName = Config.DealershipName,
     })
 end)
 
 -- ============================================
 --  Close UI
---  Called by server after successful purchase
---  or by player pressing ESC / close button
 -- ============================================
 
 RegisterNetEvent('fd_dealership:client:closeUI', function()
@@ -70,31 +63,77 @@ function closeUI()
 end
 
 -- ============================================
---  NUI Callbacks
---  Messages sent from the HTML/JS to Lua
+--  Spawn Vehicle at Dealership
+--  Triggered by server after purchase confirms
 -- ============================================
 
--- Player clicked Purchase on a vehicle
+RegisterNetEvent('fd_dealership:client:spawnVehicle', function(vehicleModel, plate)
+    local spawnPoint = Config.SpawnPoint
+    local model      = GetHashKey(vehicleModel)
+
+    -- Load model
+    RequestModel(model)
+    while not HasModelLoaded(model) do
+        Wait(100)
+    end
+
+    -- Spawn at dealership spawn point
+    local vehicle = CreateVehicle(
+        model,
+        spawnPoint.x,
+        spawnPoint.y,
+        spawnPoint.z,
+        spawnPoint.w,
+        true,
+        false
+    )
+
+    -- Set plate
+    SetVehicleNumberPlateText(vehicle, plate)
+
+    -- Wait for entity
+    while not DoesEntityExist(vehicle) do
+        Wait(100)
+    end
+
+    -- Put player in driver seat
+    SetPedIntoVehicle(PlayerPedId(), vehicle, -1)
+
+    -- Free model memory
+    SetModelAsNoLongerNeeded(model)
+
+    -- Notify player
+    lib.notify({
+        type        = 'success',
+        title       = 'FlameDrive Motors',
+        description = 'Your vehicle is ready. Drive it out and save it at any garage.',
+        duration    = 8000
+    })
+end)
+
+-- ============================================
+--  NUI Callbacks
+-- ============================================
+
 RegisterNUICallback('purchaseVehicle', function(data, cb)
     TriggerServerEvent('fd_dealership:server:purchase', data.model)
     cb('ok')
 end)
 
--- Player closed the UI manually
 RegisterNUICallback('closeUI', function(_, cb)
     closeUI()
     cb('ok')
 end)
 
 -- ============================================
---  ESC key to close UI
+--  ESC to close UI
 -- ============================================
 
 CreateThread(function()
     while true do
         Wait(0)
         if isUIOpen then
-            if IsControlJustPressed(0, 200) then -- 200 = ESC
+            if IsControlJustPressed(0, 200) then
                 closeUI()
             end
         else
@@ -108,7 +147,8 @@ print("^2[fd_dealership] Client loaded.^0")
 
 ---
 
-Save and push.
+Replace all three files completely, save, and push.
 
 Commit message:
 ```
+clean rewrite config client server fd_dealership

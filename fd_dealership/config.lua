@@ -1,66 +1,63 @@
 -- ============================================
 --  fd_dealership | config.lua
 --  All vehicles, prices, and settings live here
---  Devs never need to touch server.lua or client.lua
---  just to add or change vehicles
 -- ============================================
 
 Config = {}
 
 -- ============================================
---  Dealership Location
---  Change these coords once MLO is purchased
+--  Dealership Location & Spawn
+--  Update these once MLO is purchased
 -- ============================================
 
-Config.Location = vector3(0.0, 0.0, 0.0)
-Config.Heading  = 0.0
+Config.Location   = vector3(0.0, 0.0, 0.0)
+Config.Heading    = 0.0
+Config.SpawnPoint = vector4(0.0, 0.0, 0.0, 0.0)
 
 -- ============================================
 --  Dealership Info
 -- ============================================
 
 Config.DealershipName = "FlameDrive Motors"
-Config.ServerName     = "FlamCity"
+Config.ServerName     = "FlameCity"
 
 -- ============================================
 --  Tier Definitions
---  These control what each tier requires
 -- ============================================
 
 Config.Tiers = {
     standard = {
-        label       = "Standard",
+        label          = "Standard",
         requiresTicket = false,
-        ticketType  = nil,
+        ticketType     = nil,
         requiresMoney  = true,
-        color       = "#E87B35", -- orange
+        color          = "#4CAF50",
     },
     elite = {
-        label       = "Elite",
+        label          = "Elite",
         requiresTicket = true,
-        ticketType  = "elite",
+        ticketType     = "elite",
         requiresMoney  = true,
-        color       = "#4A90D9", -- blue
+        color          = "#3A7BD5",
     },
     apex = {
-        label       = "Apex",
+        label          = "Apex",
         requiresTicket = true,
-        ticketType  = "apex",
-        requiresMoney  = false, -- apex is free IC
-        color       = "#C0392B", -- red
+        ticketType     = "apex",
+        requiresMoney  = false,
+        color          = "#7B2FBE",
     },
 }
 
 -- ============================================
 --  Vehicle Catalog
---  Each vehicle needs:
---    label       = display name in UI
---    model       = spawn code (must match vehicle in server)
---    tier        = "standard" / "elite" / "apex"
---    price       = IC price (0 for apex)
---    limit       = max units server-wide (-1 = unlimited)
---    description = short line shown in UI
---    category    = "Sedans" / "Sports" / "SUVs" / "Supercars" / "Motorcycles" / "Trucks"
+--  label       = display name in UI
+--  model       = spawn code
+--  tier        = "standard" / "elite" / "apex"
+--  price       = IC price (0 for apex)
+--  limit       = max units server-wide (-1 = unlimited)
+--  category    = display category
+--  description = short line shown in UI
 -- ============================================
 
 Config.Vehicles = {
@@ -136,7 +133,7 @@ Config.Vehicles = {
         description = "Sleek and refined. Built for the road.",
     },
     {
-        label       = "Übermacht Oracle XS",
+        label       = "Ubermacht Oracle XS",
         model       = "oraclexs",
         tier        = "elite",
         price       = 200000,
@@ -155,7 +152,7 @@ Config.Vehicles = {
         price       = 0,
         limit       = 10,
         category    = "Supercars",
-        description = "The pinnacle of Italian engineering. Rare and exclusive.",
+        description = "The pinnacle of Italian engineering.",
     },
     {
         label       = "Pegassi Torero XO",
@@ -178,7 +175,7 @@ Config.Vehicles = {
 }
 
 -- ============================================
---  Categories shown in UI — controls display order
+--  Categories — controls display order in UI
 -- ============================================
 
 Config.Categories = {
@@ -191,22 +188,13 @@ Config.Categories = {
 }
 
 -- ============================================
---  Notifications
+--  Notification Messages
 -- ============================================
 
 Config.Notifications = {
     noTicket        = "You need a {tier} Ticket to purchase this vehicle.",
     noMoney         = "You do not have enough money. Required: ${price}",
-    limitReached    = "This vehicle has reached its server-wide limit and is no longer available.",
-    purchaseSuccess = "You are now the owner of a {label}. Check your garage.",
+    limitReached    = "This vehicle has reached its server-wide limit.",
+    purchaseSuccess = "You are now the owner of a {label}. Drive it out and save it in any garage.",
     alreadyOwned    = "You already own this vehicle.",
 }
-```
-
----
-
-**Save both files and push to GitHub.**
-
-Commit message:
-```
-add fd_dealership fxmanifest and config
