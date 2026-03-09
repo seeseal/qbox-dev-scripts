@@ -1,57 +1,124 @@
 // ============================================
-//  fd_dealership | script.js
+//  frcp_dealership | script.js  v2.0
+//  Original catalog logic preserved.
+//  Added: tab switching, employee panel,
+//  boss panel, society fund UI, staff modals.
 // ============================================
 
-console.log('[FD] script.js starting...');
+console.log('[FD] script.js v2.0 loading...');
 
-let catalog        = [];
-let tickets        = { elite: 0, apex: 0 };
-let balance        = 0;
-let activeTier     = 'all';
-let activeCategory = 'all';
-let activeSort     = 'default';
-let selectedVehicle = null;
+// ── State ──────────────────────────────────
 
-// ============================================
-//  NUI Message Handler
-// ============================================
+var catalog        = [];
+var tickets        = { elite: 0, apex: 0 };
+var balance        = 0;
+var activeTier     = 'all';
+var activeCategory = 'all';
+var activeSort     = 'default';
+var selectedVehicle = null;
+var isEmployee     = false;
+var isBoss         = false;
+var societyBalance = 0;
+var staffModalAction = null;  // 'hire' | 'fire' | 'promote' | 'demote'
+
+// ── Tab Switching ──────────────────────────
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    document.querySelectorAll('.tab-content').forEach(function(el) {
+        el.classList.add('hidden');
+        el.classList.remove('active');
+    });
+    var target = document.getElementById('tab-content-' + tabName);
+    if (target) {
+        target.classList.remove('hidden');
+        target.classList.add('active');
+    }
+}
+
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        if (!btn.classList.contains('hidden')) {
+            switchTab(btn.dataset.tab);
+        }
+    });
+});
+
+// ── NUI Message Handler ───────────────────
 
 window.addEventListener('message', function(event) {
-    console.log('[FD] message received:', event.data.action);
-
-    var action        = event.data.action;
-    var data          = event.data.data;
-    var tiers         = event.data.tiers;
-    var categories    = event.data.categories;
-    var dealershipName = event.data.dealershipName;
+    var action = event.data.action;
 
     if (action === 'openDealership') {
-        console.log('[FD] openDealership called');
-        console.log('[FD] data:', JSON.stringify(data).substring(0, 100));
-
         try {
-            catalog  = data.catalog;
-            tickets  = data.tickets;
-            balance  = data.balance;
+            var data       = event.data.data;
+            catalog        = data.catalog;
+            tickets        = data.tickets;
+            balance        = data.balance;
+            isEmployee     = data.isEmployee || false;
+            isBoss         = data.isBoss     || false;
 
-            console.log('[FD] catalog length:', catalog.length);
-            console.log('[FD] setting text fields...');
+            document.getElementById('dealership-name').textContent  = event.data.dealershipName;
+            document.getElementById('player-name').textContent      = 'Welcome, ' + data.playerName;
+            document.getElementById('player-balance').textContent   = '$' + balance.toLocaleString();
+            document.getElementById('ticket-elite').textContent     = tickets.elite;
+            document.getElementById('ticket-apex').textContent      = tickets.apex;
 
-            document.getElementById('dealership-name').textContent = dealershipName;
-            document.getElementById('player-name').textContent     = 'Welcome, ' + data.playerName;
-            document.getElementById('player-balance').textContent  = '$' + balance.toLocaleString();
-            document.getElementById('ticket-elite').textContent    = tickets.elite;
-            document.getElementById('ticket-apex').textContent     = tickets.apex;
+            // ── Assistant Banner ──────────────────────────────
+            var assistantBanner   = document.getElementById('assistant-banner');
+            var noEmployeeBanner  = document.getElementById('no-employee-banner');
+            assistantBanner.classList.add('hidden');
+            noEmployeeBanner.classList.add('hidden');
 
-            console.log('[FD] building category filters...');
-            buildCategoryFilters(categories);
+            if (!isEmployee) {
+                // Customer view — show assistant info or warning
+                if (data.assistant) {
+                    document.getElementById('assistant-name').textContent  = data.assistant.name;
+                    document.getElementById('assistant-grade').textContent = data.assistant.grade;
+                    var commWrap = document.getElementById('assistant-commission-wrap');
+                    if (data.assistant.commission > 0) {
+                        document.getElementById('assistant-commission').textContent = data.assistant.commission;
+                        commWrap.classList.remove('hidden');
+                    } else {
+                        commWrap.classList.add('hidden');
+                    }
+                    assistantBanner.classList.remove('hidden');
+                } else {
+                    noEmployeeBanner.classList.remove('hidden');
+                }
+            }
+            // ─────────────────────────────────────────────────
 
-            console.log('[FD] rendering vehicles...');
+            // Show employee badge + tabs
+            var badge   = document.getElementById('employee-badge');
+            var jobTab  = document.getElementById('tab-job');
+            var bossTab = document.getElementById('tab-boss');
+
+            if (isEmployee) {
+                badge.classList.remove('hidden');
+                document.getElementById('employee-grade-label').textContent = data.jobGrade || 'Employee';
+                jobTab.classList.remove('hidden');
+                document.getElementById('job-grade-display').textContent = data.jobGrade || '—';
+            } else {
+                badge.classList.add('hidden');
+                jobTab.classList.add('hidden');
+                bossTab.classList.add('hidden');
+            }
+
+            if (isBoss) {
+                bossTab.classList.remove('hidden');
+                document.getElementById('society-pct').textContent = '80%';
+                document.getElementById('tax-pct').textContent     = '20%';
+            } else {
+                bossTab.classList.add('hidden');
+            }
+
+            buildCategoryFilters(event.data.categories);
             renderVehicles();
-
-            console.log('[FD] removing hidden class...');
             document.getElementById('dealership-ui').classList.remove('hidden');
-            console.log('[FD] UI should be visible now');
+            switchTab('catalog');
 
         } catch(err) {
             console.error('[FD] ERROR in openDealership:', err.message, err.stack);
@@ -59,12 +126,9 @@ window.addEventListener('message', function(event) {
     }
 
     if (action === 'closeUI') {
-        console.log('[FD] closeUI called');
         closeUI();
     }
 
-    // Live supply update — when another player buys a vehicle,
-    // the server broadcasts the new sold count so our UI stays accurate
     if (action === 'updateSupply') {
         var updatedModel = event.data.model;
         var newSold      = event.data.sold;
@@ -76,27 +140,24 @@ window.addEventListener('message', function(event) {
         });
         renderVehicles();
     }
+
+    if (action === 'receiveSocietyBalance') {
+        societyBalance = event.data.balance || 0;
+        document.getElementById('society-balance-display').textContent = '$' + societyBalance.toLocaleString();
+        document.getElementById('withdraw-available').textContent = '$' + societyBalance.toLocaleString();
+    }
 });
 
-console.log('[FD] message listener registered');
-
-// ============================================
-//  Build Category Filter Buttons
-// ============================================
+// ── Category Filter Buttons ───────────────
 
 function buildCategoryFilters(categories) {
     var container = document.getElementById('category-filters');
     container.innerHTML = '';
-
     var icons = {
-        'Sedans':      'fas fa-car-side',
-        'Sports':      'fas fa-flag-checkered',
-        'SUVs':        'fas fa-truck-monster',
-        'Supercars':   'fas fa-bolt',
-        'Motorcycles': 'fas fa-motorcycle',
-        'Trucks':      'fas fa-truck',
+        'Sedans': 'fas fa-car-side', 'Sports': 'fas fa-flag-checkered',
+        'SUVs': 'fas fa-truck-monster', 'Supercars': 'fas fa-bolt',
+        'Motorcycles': 'fas fa-motorcycle', 'Trucks': 'fas fa-truck',
     };
-
     categories.forEach(function(cat) {
         var btn = document.createElement('button');
         btn.className      = 'filter-btn';
@@ -108,34 +169,24 @@ function buildCategoryFilters(categories) {
     });
 }
 
-// ============================================
-//  Filter & Sort Logic
-// ============================================
+// ── Filter & Sort ─────────────────────────
 
 function setFilter(type, value, btn) {
     if (type === 'tier') {
         activeTier = value;
-        document.querySelectorAll('[data-filter="tier"]').forEach(function(b) {
-            b.classList.remove('active');
-        });
+        document.querySelectorAll('[data-filter="tier"]').forEach(function(b) { b.classList.remove('active'); });
     } else {
         activeCategory = value;
-        document.querySelectorAll('[data-filter="category"]').forEach(function(b) {
-            b.classList.remove('active');
-        });
+        document.querySelectorAll('[data-filter="category"]').forEach(function(b) { b.classList.remove('active'); });
     }
     btn.classList.add('active');
     renderVehicles();
 }
 
-// Bind tier filter buttons
 document.querySelectorAll('[data-filter="tier"]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        setFilter('tier', btn.dataset.value, btn);
-    });
+    btn.addEventListener('click', function() { setFilter('tier', btn.dataset.value, btn); });
 });
 
-// Bind sort dropdown
 document.getElementById('sort-select').addEventListener('change', function(e) {
     activeSort = e.target.value;
     renderVehicles();
@@ -143,24 +194,15 @@ document.getElementById('sort-select').addEventListener('change', function(e) {
 
 function getFilteredVehicles() {
     var vehicles = catalog.slice();
-
-    if (activeTier !== 'all') {
-        vehicles = vehicles.filter(function(v) { return v.tier === activeTier; });
-    }
-    if (activeCategory !== 'all') {
-        vehicles = vehicles.filter(function(v) { return v.category === activeCategory; });
-    }
-
+    if (activeTier !== 'all')     vehicles = vehicles.filter(function(v) { return v.tier === activeTier; });
+    if (activeCategory !== 'all') vehicles = vehicles.filter(function(v) { return v.category === activeCategory; });
     if (activeSort === 'price-asc')  vehicles.sort(function(a,b) { return a.price - b.price; });
     if (activeSort === 'price-desc') vehicles.sort(function(a,b) { return b.price - a.price; });
     if (activeSort === 'name-asc')   vehicles.sort(function(a,b) { return a.label.localeCompare(b.label); });
-
     return vehicles;
 }
 
-// ============================================
-//  Render Vehicle Cards
-// ============================================
+// ── Render Vehicle Cards ──────────────────
 
 function renderVehicles() {
     var grid     = document.getElementById('vehicle-grid');
@@ -170,16 +212,11 @@ function renderVehicles() {
         vehicles.length + ' vehicle' + (vehicles.length !== 1 ? 's' : '');
 
     grid.innerHTML = '';
-
     if (vehicles.length === 0) {
         grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:#606080;">No vehicles match your filters.</div>';
         return;
     }
-
-    vehicles.forEach(function(vehicle) {
-        var card = buildVehicleCard(vehicle);
-        grid.appendChild(card);
-    });
+    vehicles.forEach(function(v) { grid.appendChild(buildVehicleCard(v)); });
 }
 
 function buildVehicleCard(vehicle) {
@@ -193,18 +230,13 @@ function buildVehicleCard(vehicle) {
         ? '<span class="card-price free">FREE</span>'
         : '<span class="card-price">$' + vehicle.price.toLocaleString() + '</span>';
 
-    var supplyDisplay = '';
-    var supplyClass   = '';
-
+    var supplyDisplay = '', supplyClass = '';
     if (vehicle.limit === -1) {
         supplyDisplay = 'Unlimited';
     } else if (vehicle.remaining <= 0) {
-        supplyDisplay = 'Sold Out';
-        supplyClass   = 'sold';
-        card.classList.add('unavailable');
+        supplyDisplay = 'Sold Out'; supplyClass = 'sold'; card.classList.add('unavailable');
     } else if (vehicle.remaining <= 3) {
-        supplyDisplay = vehicle.remaining + ' left';
-        supplyClass   = 'low';
+        supplyDisplay = vehicle.remaining + ' left'; supplyClass = 'low';
     } else {
         supplyDisplay = vehicle.remaining + ' / ' + vehicle.limit;
     }
@@ -225,17 +257,13 @@ function buildVehicleCard(vehicle) {
     if (!card.classList.contains('unavailable')) {
         card.addEventListener('click', function() { openConfirmModal(vehicle); });
     }
-
     return card;
 }
 
-// ============================================
-//  Confirm Modal
-// ============================================
+// ── Purchase Modal ────────────────────────
 
 function openConfirmModal(vehicle) {
     selectedVehicle = vehicle;
-
     document.getElementById('modal-vehicle-name').textContent = vehicle.label;
     document.getElementById('modal-tier').textContent         = vehicle.tier.toUpperCase();
     document.getElementById('modal-price').textContent        = vehicle.price === 0 ? 'FREE' : '$' + vehicle.price.toLocaleString();
@@ -243,13 +271,12 @@ function openConfirmModal(vehicle) {
     document.getElementById('modal-balance').textContent      = '$' + balance.toLocaleString();
 
     var warning = '';
-    if (vehicle.tier === 'elite' && tickets.elite < 1) {
+    if (vehicle.tier === 'elite' && tickets.elite < 1)
         warning = 'You do not have an Elite Ticket. Purchase one on Tebex.';
-    } else if (vehicle.tier === 'apex' && tickets.apex < 1) {
+    else if (vehicle.tier === 'apex' && tickets.apex < 1)
         warning = 'You do not have an Apex Ticket. Purchase one on Tebex.';
-    } else if (vehicle.tier !== 'apex' && balance < vehicle.price) {
+    else if (vehicle.tier !== 'apex' && balance < vehicle.price)
         warning = 'Insufficient funds. Required: $' + vehicle.price.toLocaleString();
-    }
 
     document.getElementById('modal-ticket-warning').textContent = warning;
     document.getElementById('confirm-modal').classList.remove('hidden');
@@ -262,42 +289,103 @@ document.getElementById('modal-cancel').addEventListener('click', function() {
 
 document.getElementById('modal-confirm').addEventListener('click', function() {
     if (!selectedVehicle) return;
-
     fetch('https://' + GetParentResourceName() + '/purchaseVehicle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model:  selectedVehicle.model,
-            tier:   selectedVehicle.tier,
-            price:  selectedVehicle.price,
-            label:  selectedVehicle.label,
-        })
+        body: JSON.stringify({ model: selectedVehicle.model, tier: selectedVehicle.tier, price: selectedVehicle.price, label: selectedVehicle.label })
     });
-
     document.getElementById('confirm-modal').classList.add('hidden');
     selectedVehicle = null;
 });
 
-// ============================================
-//  Close UI
-// ============================================
+// ── Boss Panel: Society Fund ──────────────
+
+document.getElementById('btn-check-balance').addEventListener('click', function() {
+    fetch('https://' + GetParentResourceName() + '/getSocietyBalance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+    });
+});
+
+document.getElementById('btn-withdraw').addEventListener('click', function() {
+    document.getElementById('society-balance-display'); // already visible
+    document.getElementById('withdraw-modal').classList.remove('hidden');
+    document.getElementById('withdraw-amount-input').value = '';
+});
+
+document.getElementById('withdraw-cancel').addEventListener('click', function() {
+    document.getElementById('withdraw-modal').classList.add('hidden');
+});
+
+document.getElementById('withdraw-confirm').addEventListener('click', function() {
+    var amount = parseInt(document.getElementById('withdraw-amount-input').value);
+    if (!amount || amount <= 0) return;
+    fetch('https://' + GetParentResourceName() + '/withdrawSociety', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amount })
+    });
+    document.getElementById('withdraw-modal').classList.add('hidden');
+});
+
+// ── Boss Panel: Staff Management ──────────
+
+function openStaffModal(action, title) {
+    staffModalAction = action;
+    document.getElementById('staff-modal-title').textContent = title;
+    document.getElementById('staff-modal-input').value = '';
+    document.getElementById('staff-modal').classList.remove('hidden');
+}
+
+document.getElementById('btn-hire').addEventListener('click', function() {
+    openStaffModal('hire', '👔 Hire Employee');
+});
+document.getElementById('btn-fire').addEventListener('click', function() {
+    openStaffModal('fire', '🚪 Fire Employee');
+});
+document.getElementById('btn-promote').addEventListener('click', function() {
+    openStaffModal('promote', '⬆️ Promote Employee');
+});
+document.getElementById('btn-demote').addEventListener('click', function() {
+    openStaffModal('demote', '⬇️ Demote Employee');
+});
+
+document.getElementById('staff-modal-cancel').addEventListener('click', function() {
+    document.getElementById('staff-modal').classList.add('hidden');
+    staffModalAction = null;
+});
+
+document.getElementById('staff-modal-confirm').addEventListener('click', function() {
+    var targetId = parseInt(document.getElementById('staff-modal-input').value);
+    if (!targetId || targetId <= 0 || !staffModalAction) return;
+
+    var endpoint = staffModalAction + 'Player';
+    fetch('https://' + GetParentResourceName() + '/' + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId: targetId })
+    });
+
+    document.getElementById('staff-modal').classList.add('hidden');
+    staffModalAction = null;
+});
+
+// ── Close UI ──────────────────────────────
 
 document.getElementById('close-btn').addEventListener('click', closeUI);
 
 function closeUI() {
-    console.log('[FD] closeUI called');
     document.getElementById('dealership-ui').classList.add('hidden');
     document.getElementById('confirm-modal').classList.add('hidden');
+    document.getElementById('staff-modal').classList.add('hidden');
+    document.getElementById('withdraw-modal').classList.add('hidden');
 
     fetch('https://' + GetParentResourceName() + '/closeUI', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
     });
 
-    activeTier      = 'all';
-    activeCategory  = 'all';
+    activeTier     = 'all';
+    activeCategory = 'all';
     selectedVehicle = null;
 }
 
-console.log('[FD] script.js fully loaded');
+console.log('[FD] script.js v2.0 fully loaded.');

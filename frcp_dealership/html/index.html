@@ -23,6 +23,11 @@
             </div>
         </div>
         <div class="header-right">
+            <!-- Employee badge — hidden for non-employees -->
+            <div class="employee-badge hidden" id="employee-badge">
+                <i class="fas fa-id-badge"></i>
+                <span id="employee-grade-label">Trainee</span>
+            </div>
             <div class="balance-box">
                 <i class="fas fa-university"></i>
                 <span id="player-balance">$0</span>
@@ -45,59 +50,171 @@
         </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="main">
+    <!-- Assistant Banner — shown when an employee is nearby the stand -->
+    <div id="assistant-banner" class="assistant-banner hidden">
+        <i class="fas fa-user-tie"></i>
+        <span>Assisted by <strong id="assistant-name">—</strong></span>
+        <span class="assistant-grade" id="assistant-grade">—</span>
+        <span class="assistant-commission hidden" id="assistant-commission-wrap">
+            · <span id="assistant-commission">0</span>% commission on this sale
+        </span>
+    </div>
 
-        <!-- Sidebar -->
-        <div class="sidebar">
+    <!-- No Employee Warning — shown when no employee is nearby -->
+    <div id="no-employee-banner" class="no-employee-banner hidden">
+        <i class="fas fa-exclamation-triangle"></i>
+        <span>No staff member nearby — browsing only. Find a salesperson to complete a purchase.</span>
+    </div>
 
-            <!-- Tier Filter -->
-            <div class="filter-section">
-                <p class="filter-label">TIER</p>
-                <button class="filter-btn active" data-filter="tier" data-value="all">
-                    <i class="fas fa-layer-group"></i> All Tiers
-                </button>
-                <button class="filter-btn standard" data-filter="tier" data-value="standard">
-                    <i class="fas fa-circle"></i> Standard
-                </button>
-                <button class="filter-btn elite" data-filter="tier" data-value="elite">
-                    <i class="fas fa-star"></i> Elite
-                </button>
-                <button class="filter-btn apex" data-filter="tier" data-value="apex">
-                    <i class="fas fa-crown"></i> Apex
-                </button>
+    <!-- Tab Bar — Job tab only visible to employees -->
+    <div class="tab-bar">
+        <button class="tab-btn active" data-tab="catalog">
+            <i class="fas fa-car"></i> Vehicle Catalog
+        </button>
+        <button class="tab-btn hidden" id="tab-job" data-tab="job">
+            <i class="fas fa-briefcase"></i> Employee Panel
+        </button>
+        <button class="tab-btn hidden" id="tab-boss" data-tab="boss">
+            <i class="fas fa-crown"></i> GM Office
+        </button>
+    </div>
+
+    <!-- ═══ TAB: CATALOG ═══ -->
+    <div class="tab-content active" id="tab-content-catalog">
+        <div class="main">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="filter-section">
+                    <p class="filter-label">TIER</p>
+                    <button class="filter-btn active" data-filter="tier" data-value="all">
+                        <i class="fas fa-layer-group"></i> All Tiers
+                    </button>
+                    <button class="filter-btn standard" data-filter="tier" data-value="standard">
+                        <i class="fas fa-circle"></i> Standard
+                    </button>
+                    <button class="filter-btn elite" data-filter="tier" data-value="elite">
+                        <i class="fas fa-star"></i> Elite
+                    </button>
+                    <button class="filter-btn apex" data-filter="tier" data-value="apex">
+                        <i class="fas fa-crown"></i> Apex
+                    </button>
+                </div>
+                <div class="filter-section">
+                    <p class="filter-label">CATEGORY</p>
+                    <button class="filter-btn active" data-filter="category" data-value="all">
+                        <i class="fas fa-th"></i> All Categories
+                    </button>
+                    <div id="category-filters"></div>
+                </div>
+                <div class="filter-section">
+                    <p class="filter-label">SORT BY</p>
+                    <select id="sort-select">
+                        <option value="default">Default</option>
+                        <option value="price-asc">Price: Low to High</option>
+                        <option value="price-desc">Price: High to Low</option>
+                        <option value="name-asc">Name: A to Z</option>
+                    </select>
+                </div>
+            </div>
+            <!-- Vehicle Grid -->
+            <div class="content">
+                <div class="content-header">
+                    <p id="result-count">0 vehicles</p>
+                </div>
+                <div id="vehicle-grid" class="vehicle-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB: EMPLOYEE PANEL ═══ -->
+    <div class="tab-content hidden" id="tab-content-job">
+        <div class="job-panel">
+            <div class="job-section">
+                <h2 class="section-title"><i class="fas fa-info-circle"></i> Your Role</h2>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <span class="info-label">Position</span>
+                        <span class="info-value" id="job-grade-display">—</span>
+                    </div>
+                    <div class="info-card">
+                        <span class="info-label">Status</span>
+                        <span class="info-value" id="job-duty-display">Off Duty</span>
+                    </div>
+                </div>
             </div>
 
-            <!-- Category Filter -->
-            <div class="filter-section">
-                <p class="filter-label">CATEGORY</p>
-                <button class="filter-btn active" data-filter="category" data-value="all">
-                    <i class="fas fa-th"></i> All Categories
-                </button>
-                <div id="category-filters"></div>
+            <div class="job-section">
+                <h2 class="section-title"><i class="fas fa-car"></i> Test Drive</h2>
+                <p class="section-desc">
+                    To start a test drive, close this UI and use <strong>ox_target</strong> to click
+                    on a nearby customer. Select "Offer Test Drive" and choose a vehicle.
+                    The drive lasts <span id="td-duration">5 minutes</span> and customers
+                    must stay within <span id="td-radius">500m</span> of the dealership.
+                    Use <code>/endtestdrive [playerID]</code> to end a drive early.
+                </p>
             </div>
 
-            <!-- Sort -->
-            <div class="filter-section">
-                <p class="filter-label">SORT BY</p>
-                <select id="sort-select">
-                    <option value="default">Default</option>
-                    <option value="price-asc">Price: Low to High</option>
-                    <option value="price-desc">Price: High to Low</option>
-                    <option value="name-asc">Name: A to Z</option>
-                </select>
+            <div class="job-section">
+                <h2 class="section-title"><i class="fas fa-clipboard-list"></i> Employee Rules</h2>
+                <ul class="rules-list">
+                    <li>Always clock in before accessing the stash or changing room.</li>
+                    <li>Uniform must be worn while on the dealership floor.</li>
+                    <li>All sales are automatically split: society fund + government tax.</li>
+                    <li>Do not use the boss menu unless you are the General Manager.</li>
+                    <li>Use <code>/fdstaff</code> to see who is currently on shift.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ TAB: BOSS / GM OFFICE ═══ -->
+    <div class="tab-content hidden" id="tab-content-boss">
+        <div class="job-panel">
+
+            <div class="job-section">
+                <h2 class="section-title"><i class="fas fa-piggy-bank"></i> Society Fund</h2>
+                <p class="section-desc">
+                    Every sale deposits <strong id="society-pct">80%</strong> into the fund automatically.
+                    Government receives <strong id="tax-pct">20%</strong> as tax.
+                </p>
+                <div class="society-balance-box">
+                    <span class="balance-label">Current Balance</span>
+                    <span class="balance-amount" id="society-balance-display">—</span>
+                </div>
+                <div class="boss-actions">
+                    <button class="boss-btn" id="btn-check-balance">
+                        <i class="fas fa-sync"></i> Refresh Balance
+                    </button>
+                    <button class="boss-btn primary" id="btn-withdraw">
+                        <i class="fas fa-hand-holding-usd"></i> Withdraw
+                    </button>
+                </div>
+            </div>
+
+            <div class="job-section">
+                <h2 class="section-title"><i class="fas fa-users-cog"></i> Staff Management</h2>
+                <p class="section-desc">Use the in-world Boss Desk (ox_target zone) to hire, fire, promote and demote employees. Or use these quick actions:</p>
+                <div class="boss-action-grid">
+                    <button class="boss-action-card hire" id="btn-hire">
+                        <i class="fas fa-user-plus"></i>
+                        <span>Hire</span>
+                    </button>
+                    <button class="boss-action-card fire" id="btn-fire">
+                        <i class="fas fa-user-minus"></i>
+                        <span>Fire</span>
+                    </button>
+                    <button class="boss-action-card promote" id="btn-promote">
+                        <i class="fas fa-arrow-up"></i>
+                        <span>Promote</span>
+                    </button>
+                    <button class="boss-action-card demote" id="btn-demote">
+                        <i class="fas fa-arrow-down"></i>
+                        <span>Demote</span>
+                    </button>
+                </div>
             </div>
 
         </div>
-
-        <!-- Vehicle Grid -->
-        <div class="content">
-            <div class="content-header">
-                <p id="result-count">0 vehicles</p>
-            </div>
-            <div id="vehicle-grid" class="vehicle-grid"></div>
-        </div>
-
     </div>
 
 </div>
@@ -135,6 +252,48 @@
             <button class="btn-cancel" id="modal-cancel">Cancel</button>
             <button class="btn-confirm" id="modal-confirm">
                 <i class="fas fa-check"></i> Purchase
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Staff ID Input Modal -->
+<div id="staff-modal" class="modal hidden">
+    <div class="modal-box">
+        <div class="modal-header">
+            <i class="fas fa-user-cog"></i>
+            <h2 id="staff-modal-title">Manage Employee</h2>
+        </div>
+        <div class="modal-body">
+            <p class="modal-warning" style="color: var(--text-secondary); margin-bottom:12px;">Enter the server ID of the player.</p>
+            <input type="number" id="staff-modal-input" class="staff-input" placeholder="Server ID e.g. 12" min="1" />
+        </div>
+        <div class="modal-footer">
+            <button class="btn-cancel" id="staff-modal-cancel">Cancel</button>
+            <button class="btn-confirm" id="staff-modal-confirm">
+                <i class="fas fa-check"></i> Confirm
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Withdraw Modal -->
+<div id="withdraw-modal" class="modal hidden">
+    <div class="modal-box">
+        <div class="modal-header">
+            <i class="fas fa-hand-holding-usd"></i>
+            <h2>Withdraw Funds</h2>
+        </div>
+        <div class="modal-body">
+            <p class="modal-warning" style="color: var(--text-secondary); margin-bottom:12px;">
+                Available: <span id="withdraw-available">$0</span>
+            </p>
+            <input type="number" id="withdraw-amount-input" class="staff-input" placeholder="Amount" min="1" />
+        </div>
+        <div class="modal-footer">
+            <button class="btn-cancel" id="withdraw-cancel">Cancel</button>
+            <button class="btn-confirm" id="withdraw-confirm">
+                <i class="fas fa-check"></i> Withdraw
             </button>
         </div>
     </div>
