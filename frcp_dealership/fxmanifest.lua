@@ -1,9 +1,9 @@
 fx_version 'cerulean'
 game 'gta5'
 
-name 'frcp_dealership'
+name        'frcp_dealership'
 description 'FlameDrive Motors — Mega Dealership for FlameCity'
-version '1.0.0'
+version     '1.2.1'
 
 dependencies {
     'qbx_core',
@@ -15,15 +15,17 @@ dependencies {
 }
 
 shared_scripts {
-    'config.lua'
+    '@ox_lib/init.lua',   -- required for lib.notify, lib.addCommand, lib.alertDialog
+    'config.lua',
 }
 
 server_scripts {
-    'server.lua'
+    '@oxmysql/lib/MySQL.lua',   -- required for MySQL.query, MySQL.insert etc
+    'server.lua',
 }
 
 client_scripts {
-    'client.lua'
+    'client.lua',
 }
 
 ui_page 'html/index.html'
@@ -33,3 +35,5 @@ files {
     'html/style.css',
     'html/script.js',
 }
+
+lua54 'yes'

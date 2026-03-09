@@ -1,5 +1,5 @@
 -- ============================================
---  fd_dealership | client.lua
+--  frcp_dealership | client.lua
 --  Handles NPC, blip, interaction and UI
 -- ============================================
 
@@ -11,10 +11,10 @@ local isUIOpen = false
 
 CreateThread(function()
     local blip = AddBlipForCoord(Config.Location.x, Config.Location.y, Config.Location.z)
-    SetBlipSprite(blip, 225)          -- car dealership icon
+    SetBlipSprite(blip, 225)
     SetBlipDisplay(blip, 4)
     SetBlipScale(blip, 0.8)
-    SetBlipColour(blip, 27)           -- purple
+    SetBlipColour(blip, 27)
     SetBlipAsShortRange(blip, true)
     BeginTextCommandSetBlipName("STRING")
     AddTextComponentString(Config.DealershipName)
@@ -23,15 +23,12 @@ end)
 
 -- ============================================
 --  Salesperson NPC
---  Spawns a ped at the dealership entrance.
---  ox_target is attached to the ped so the
---  player presses E directly on the NPC.
 -- ============================================
 
 CreateThread(function()
     Wait(2000)
 
-    local model = GetHashKey("s_m_m_autoshop_01") -- car salesman ped model
+    local model = GetHashKey("s_m_m_autoshop_01")
     RequestModel(model)
     while not HasModelLoaded(model) do
         Wait(100)
@@ -48,17 +45,14 @@ CreateThread(function()
         true
     )
 
-    -- Make ped permanent and non-threatening
     SetEntityInvincible(ped, true)
     SetBlockingOfNonTemporaryEvents(ped, true)
     SetPedDiesWhenInjured(ped, false)
     FreezeEntityPosition(ped, true)
     SetPedCanRagdoll(ped, false)
     TaskStartScenarioInPlace(ped, "WORLD_HUMAN_CLIPBOARD", 0, true)
-
     SetModelAsNoLongerNeeded(model)
 
-    -- Attach ox_target to the ped
     exports.ox_target:addLocalEntity(ped, {
         {
             label    = "Browse " .. Config.DealershipName,
@@ -66,7 +60,7 @@ CreateThread(function()
             distance = 2.5,
             onSelect = function()
                 if isUIOpen then return end
-                TriggerServerEvent('fd_dealership:server:getCatalog')
+                TriggerServerEvent('frcp_dealership:server:getCatalog')
             end
         }
     })
@@ -76,10 +70,9 @@ end)
 --  Open UI
 -- ============================================
 
-RegisterNetEvent('fd_dealership:client:openUI', function(data)
+RegisterNetEvent('frcp_dealership:client:openUI', function(data)
     if isUIOpen then return end
     isUIOpen = true
-
     SetNuiFocus(true, true)
     SendNUIMessage({
         action         = "openDealership",
@@ -94,7 +87,7 @@ end)
 --  Close UI
 -- ============================================
 
-RegisterNetEvent('fd_dealership:client:closeUI', function()
+RegisterNetEvent('frcp_dealership:client:closeUI', function()
     closeUI()
 end)
 
@@ -107,10 +100,10 @@ end
 
 -- ============================================
 --  Spawn Vehicle at Dealership
---  Triggered by server after purchase confirms
+--  Keys are granted automatically — no prompt
 -- ============================================
 
-RegisterNetEvent('fd_dealership:client:spawnVehicle', function(vehicleModel, plate)
+RegisterNetEvent('frcp_dealership:client:spawnVehicle', function(vehicleModel, plate)
     local spawnPoint = Config.SpawnPoint
     local model      = GetHashKey(vehicleModel)
 
@@ -129,14 +122,23 @@ RegisterNetEvent('fd_dealership:client:spawnVehicle', function(vehicleModel, pla
         false
     )
 
-    SetVehicleNumberPlateText(vehicle, plate)
-
     while not DoesEntityExist(vehicle) do
         Wait(100)
     end
 
+    SetVehicleNumberPlateText(vehicle, plate)
     SetPedIntoVehicle(PlayerPedId(), vehicle, -1)
     SetModelAsNoLongerNeeded(model)
+
+    -- Grant keys automatically — suppresses the "Search for Keys" prompt
+    -- Tries the three most common key scripts in order
+    if exports['qb-vehiclekeys'] then
+        exports['qb-vehiclekeys']:GiveKeys(plate)
+    elseif exports['qs-vehiclekeys'] then
+        exports['qs-vehiclekeys']:AddKey(plate)
+    elseif exports['vehiclekeys'] then
+        exports['vehiclekeys']:GiveKeys(plate)
+    end
 
     lib.notify({
         type        = 'success',
@@ -147,12 +149,50 @@ RegisterNetEvent('fd_dealership:client:spawnVehicle', function(vehicleModel, pla
 end)
 
 -- ============================================
+--  Live supply update
+--  Server broadcasts after every purchase.
+--  If the UI is open, push the new count to NUI
+--  so the remaining stock updates in real time.
+-- ============================================
+
+RegisterNetEvent('frcp_dealership:client:updateSupply', function(model, sold)
+    if not isUIOpen then return end
+    SendNUIMessage({
+        action = "updateSupply",
+        model  = model,
+        sold   = sold,
+    })
+end)
+
+-- ============================================
 --  NUI Callbacks
 -- ============================================
 
+-- Purchase with confirm dialog
 RegisterNUICallback('purchaseVehicle', function(data, cb)
-    TriggerServerEvent('fd_dealership:server:purchase', data.model)
     cb('ok')
+
+    -- Drop NUI focus so ox_lib dialog can receive input
+    SetNuiFocus(false, false)
+
+    local confirmed = lib.alertDialog({
+        header   = 'Confirm Purchase',
+        content  = ('Are you sure you want to purchase the **%s**?%s'):format(
+            data.label or data.model,
+            (data.price and data.price > 0)
+                and ('\n\nThis will cost **$%s** from your bank.'):format(data.price)
+                or  '\n\nThis vehicle is **free** with your Apex ticket.'
+        ),
+        centered = true,
+        cancel   = true,
+    })
+
+    if confirmed == 'confirm' then
+        TriggerServerEvent('frcp_dealership:server:purchase', data.model)
+    else
+        -- Cancelled — restore NUI focus back to the dealership UI
+        SetNuiFocus(true, true)
+    end
 end)
 
 RegisterNUICallback('closeUI', function(_, cb)
@@ -177,4 +217,4 @@ CreateThread(function()
     end
 end)
 
-print("^2[fd_dealership] Client loaded.^0")
+print("^2[frcp_dealership] Client loaded.^0")

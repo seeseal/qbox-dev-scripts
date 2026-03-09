@@ -10,6 +10,7 @@ local webhooks = {
     housing    = "https://discord.com/api/webhooks/1480501379142520914/WXkhVsEV9_eCP341JJkIkvkJkHJteC8sCKm_XQ6W0hG_TEfAJncibt9vW3hpZpGZSonq",
     chop       = "https://discord.com/api/webhooks/1480501483047882875/0FenPoJdRLeigJ7yCsCpQrElajUKPIqc6jiHdF2loRaWjYChv-Lw62BC6fRHzkAZ-MF7",
     tickets    = "https://discord.com/api/webhooks/1480501559010922641/ThDXwdXfiymkAK4GExXP49mJx2h5MyB2iX9tVWWsEHua5D81CtEYWdHgWsMnPMqNyE5R",
+    tuner    = "https://discord.com/api/webhooks/1480612228620357633/FVTeJSm1J-tRdp-Wm0On8JHkPIO3yNd1-EIwoAm6JVUnsrUNfH3nnblkBwrP01tSDsdj",
 }
 
 -- Colors (decimal) for embed sidebar
