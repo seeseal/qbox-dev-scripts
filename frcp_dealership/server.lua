@@ -111,7 +111,7 @@ local function finalizePurchase(src, citizenid, vehicle)
             TriggerClientEvent('fd_dealership:client:spawnVehicle', src, vehicle.model, plate)
 
             -- Discord log
-            exports.discord_webhook:Send(
+            exports.frcp_webhook:Send(
                 "dealership",
                 "Vehicle Purchased",
                 "**CitizenID:** " .. citizenid ..
@@ -141,7 +141,7 @@ local function processPurchase(src, player, citizenid, vehicle, tierConfig)
 
     -- Consume ticket if required
     if tierConfig.requiresTicket then
-        exports.tebex_tickets:ConsumeTicket(citizenid, tierConfig.ticketType, function(consumed)
+        exports.frcp_tickets:ConsumeTicket(citizenid, tierConfig.ticketType, function(consumed)
             if not consumed then
                 -- Refund money if already deducted
                 if tierConfig.requiresMoney and vehicle.price > 0 then
@@ -193,7 +193,7 @@ RegisterNetEvent('fd_dealership:server:purchase', function(model)
 
         -- Ticket check
         if tierConfig.requiresTicket then
-            exports.tebex_tickets:HasTicket(citizenid, tierConfig.ticketType, function(hasTicket)
+            exports.frcp_tickets:HasTicket(citizenid, tierConfig.ticketType, function(hasTicket)
                 if not hasTicket then
                     notify(src, 'error', Config.Notifications.noTicket:gsub("{tier}", tierConfig.label))
                     return
@@ -248,7 +248,7 @@ RegisterNetEvent('fd_dealership:server:getCatalog', function()
         })
     end
 
-    exports.tebex_tickets:GetTicketCounts(citizenid, function(tickets)
+    exports.frcp_tickets:GetTicketCounts(citizenid, function(tickets)
         TriggerClientEvent('fd_dealership:client:openUI', src, {
             catalog    = catalog,
             tickets    = tickets,

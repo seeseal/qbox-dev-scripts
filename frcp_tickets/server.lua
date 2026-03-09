@@ -23,7 +23,7 @@ local function addTicket(citizenid, ticketType)
             print("^2[tebex_tickets] Ticket added — CitizenID: " .. citizenid .. " | Type: " .. ticketType .. "^0")
 
             -- Log to Discord
-            exports.discord_webhook:Send(
+            exports.frcp_webhook:Send(
                 "tickets",
                 "Ticket Delivered",
                 "**CitizenID:** " .. citizenid .. "\n**Type:** " .. ticketType:upper(),

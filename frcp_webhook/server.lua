@@ -49,8 +49,8 @@ end
 
 -- ============================================
 --  Exports — called by other scripts like this:
---  exports.discord_webhook:Send("turf", "Turf Captured", "Grove Street taken by Lost MC", 3066993)
---  exports.discord_webhook:SendSimple("chop", "A vehicle was chopped")
+--  exports.frcp_webhook:Send("turf", "Turf Captured", "Grove Street taken by Lost MC", 3066993)
+--  exports.frcp_webhook:SendSimple("chop", "A vehicle was chopped")
 -- ============================================
 
 exports('Send', function(channel, title, message, color)

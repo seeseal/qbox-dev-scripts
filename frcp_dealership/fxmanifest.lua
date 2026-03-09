@@ -1,8 +1,8 @@
 fx_version 'cerulean'
 game 'gta5'
 
-name 'fd_dealership'
-description 'FlameDrive Motors — Mega Dealership for FlamCity'
+name 'frcp_dealership'
+description 'FlameDrive Motors — Mega Dealership for FlameCity'
 version '1.0.0'
 
 dependencies {
@@ -10,8 +10,8 @@ dependencies {
     'oxmysql',
     'ox_lib',
     'ox_target',
-    'tebex_tickets',
-    'discord_webhook',
+    'frcp_tickets',
+    'frcp_webhook',
 }
 
 shared_scripts {
