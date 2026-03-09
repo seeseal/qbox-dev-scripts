@@ -1,17 +1,15 @@
 -- ============================================
---  discord_webhook | server.lua
+--  frcp_webhook | server.lua
 --  Shared webhook utility — used by all scripts
 -- ============================================
 
--- Add your Discord webhook URLs here
--- One webhook per channel in your Discord server
 local webhooks = {
     general    = "https://discord.com/api/webhooks/1480500600721375232/zHMvSvKAPi9T_tfhthKRzzDKfBQFSULCRNF5P2Y7wQnadPTGlsHmG0PwTWpSTxhWji-B",
     dealership = "https://discord.com/api/webhooks/1480500804556423211/n-xV5f9Y-GiaLv_KNylvCI46XUK7H_hcaNvULxYl_ZwoyE9SDD6XZEFYIXJfNgzuvxm7",
     turf       = "https://discord.com/api/webhooks/1480501260523405398/ChJQQurrJuK_97r5xI8O4FJEod3uIU1ZDpwriiOQ3JMjkYTsutdtVZ5ObyxPD1jMzs1C",
     housing    = "https://discord.com/api/webhooks/1480501379142520914/WXkhVsEV9_eCP341JJkIkvkJkHJteC8sCKm_XQ6W0hG_TEfAJncibt9vW3hpZpGZSonq",
     chop       = "https://discord.com/api/webhooks/1480501483047882875/0FenPoJdRLeigJ7yCsCpQrElajUKPIqc6jiHdF2loRaWjYChv-Lw62BC6fRHzkAZ-MF7",
-    tickets    = "https://discord.com/api/webhooks/1480501559010922641/ThDXwdXfiymkAK4GExXP49mJx2h5MyB2iX9tVWWsEHua5D81CtEYWdHgWsMnPMqNyE5R ",
+    tickets    = "https://discord.com/api/webhooks/1480501559010922641/ThDXwdXfiymkAK4GExXP49mJx2h5MyB2iX9tVWWsEHua5D81CtEYWdHgWsMnPMqNyE5R",
 }
 
 -- Colors (decimal) for embed sidebar
@@ -25,7 +23,7 @@ local function sendWebhook(channel, title, message, color)
     local webhookUrl = webhooks[channel]
 
     if not webhookUrl or webhookUrl == "" then
-        print("^1[discord_webhook] Missing webhook URL for channel: " .. tostring(channel) .. "^0")
+        print("^1[frcp_webhook] Missing webhook URL for channel: " .. tostring(channel) .. "^0")
         return
     end
 
@@ -35,14 +33,14 @@ local function sendWebhook(channel, title, message, color)
             description = tostring(message),
             color       = color or 3447003,
             footer      = {
-                text = "Dev Server • " .. os.date("%d/%m/%Y %H:%M:%S")
+                text = "Flame City • " .. os.date("%d/%m/%Y %H:%M:%S")
             }
         }}
     })
 
     PerformHttpRequest(webhookUrl, function(statusCode)
         if statusCode ~= 204 then
-            print("^1[discord_webhook] Webhook failed for channel: " .. tostring(channel) .. " | Status: " .. tostring(statusCode) .. "^0")
+            print("^1[frcp_webhook] Webhook failed for channel: " .. tostring(channel) .. " | Status: " .. tostring(statusCode) .. "^0")
         end
     end, "POST", payload, { ["Content-Type"] = "application/json" })
 end
@@ -62,11 +60,13 @@ exports('SendSimple', function(channel, message)
 end)
 
 -- ============================================
---  Test command — type in server console:
+--  Test command — type in server console (no slash):
 --  discord_test
 -- ============================================
 
 RegisterCommand('discord_test', function()
     sendWebhook("general", "Webhook Test", "Discord webhook utility is working correctly.", 3066993)
-    print("^2[discord_webhook] Test webhook fired. Check your Discord general channel.^0")
+    print("^2[frcp_webhook] Test webhook fired. Check your Discord general channel.^0")
 end, true)
+
+print("^2[frcp_webhook] Loaded successfully.^0")
