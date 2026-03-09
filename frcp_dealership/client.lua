@@ -131,14 +131,8 @@ RegisterNetEvent('frcp_dealership:client:spawnVehicle', function(vehicleModel, p
     SetModelAsNoLongerNeeded(model)
 
     -- Grant keys automatically — suppresses the "Search for Keys" prompt
-    -- Tries the three most common key scripts in order
-    if exports['qb-vehiclekeys'] then
-        exports['qb-vehiclekeys']:GiveKeys(plate)
-    elseif exports['qs-vehiclekeys'] then
-        exports['qs-vehiclekeys']:AddKey(plate)
-    elseif exports['vehiclekeys'] then
-        exports['vehiclekeys']:GiveKeys(plate)
-    end
+    local ped = PlayerPedId()
+    TriggerEvent('vehiclekeys:client:SetOwner', plate)
 
     lib.notify({
         type        = 'success',
@@ -168,31 +162,10 @@ end)
 --  NUI Callbacks
 -- ============================================
 
--- Purchase with confirm dialog
+-- Purchase — NUI already has its own confirm modal so we fire directly
 RegisterNUICallback('purchaseVehicle', function(data, cb)
     cb('ok')
-
-    -- Drop NUI focus so ox_lib dialog can receive input
-    SetNuiFocus(false, false)
-
-    local confirmed = lib.alertDialog({
-        header   = 'Confirm Purchase',
-        content  = ('Are you sure you want to purchase the **%s**?%s'):format(
-            data.label or data.model,
-            (data.price and data.price > 0)
-                and ('\n\nThis will cost **$%s** from your bank.'):format(data.price)
-                or  '\n\nThis vehicle is **free** with your Apex ticket.'
-        ),
-        centered = true,
-        cancel   = true,
-    })
-
-    if confirmed == 'confirm' then
-        TriggerServerEvent('frcp_dealership:server:purchase', data.model)
-    else
-        -- Cancelled — restore NUI focus back to the dealership UI
-        SetNuiFocus(true, true)
-    end
+    TriggerServerEvent('frcp_dealership:server:purchase', data.model)
 end)
 
 RegisterNUICallback('closeUI', function(_, cb)

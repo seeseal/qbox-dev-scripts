@@ -62,6 +62,20 @@ window.addEventListener('message', function(event) {
         console.log('[FD] closeUI called');
         closeUI();
     }
+
+    // Live supply update — when another player buys a vehicle,
+    // the server broadcasts the new sold count so our UI stays accurate
+    if (action === 'updateSupply') {
+        var updatedModel = event.data.model;
+        var newSold      = event.data.sold;
+        catalog.forEach(function(v) {
+            if (v.model === updatedModel && v.limit !== -1) {
+                v.remaining = v.limit - newSold;
+                v.available = v.remaining > 0;
+            }
+        });
+        renderVehicles();
+    }
 });
 
 console.log('[FD] message listener registered');
@@ -252,7 +266,12 @@ document.getElementById('modal-confirm').addEventListener('click', function() {
     fetch('https://' + GetParentResourceName() + '/purchaseVehicle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: selectedVehicle.model })
+        body: JSON.stringify({
+            model:  selectedVehicle.model,
+            tier:   selectedVehicle.tier,
+            price:  selectedVehicle.price,
+            label:  selectedVehicle.label,
+        })
     });
 
     document.getElementById('confirm-modal').classList.add('hidden');
