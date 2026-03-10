@@ -210,7 +210,7 @@ Config.MaxWithdrawal = 500000   -- !! CHANGE ME !! to whatever suits your econom
 Config.DisplaySpots = {
     [1] = { coords = vec4(-1255.92, -366.81, 35.54, 85.68),  default = "italirsx"   },
     [2] = { coords = vec4(-1263.15, -353.08, 35.77, 208.38),  default = "pfister811" },
-    [3] = { coords = vec4(-1266.73, -354.99, 35.61, 212.87),  default = "toreoxo"    },
+    [3] = { coords = vec4(-1266.73, -354.99, 35.61, 212.87),  default = "elegy"    },
     [4] = { coords = vec4(-1270.14, -357.05, 35.48, 246.1), default = "exemplar"   },
     [5] = { coords = vec4(-1270.94, -361.11, 35.57, 275.25), default = "oraclexs"   },
     [6] = { coords = vec4(-1269.36, -364.73, 35.76, 297.42), default = "elegy"      },

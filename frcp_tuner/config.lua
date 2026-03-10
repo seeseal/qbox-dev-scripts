@@ -15,6 +15,30 @@ Config.ShopHeading  = 250.0
 -- How close the player must be to use the shop (metres)
 Config.ShopRadius   = 2.5
 
+-- ============================================================
+--  WORKSHOP BAYS  (vehicle pull-in zones)
+-- ============================================================
+Config.WorkshopBays = {
+    { coords = vector4(135.8,  -3030.52, 5.66, 179.23) },
+    { coords = vector4(145.01, -3030.66, 5.66, 180.31) },
+}
+
+-- ============================================================
+--  CLOCK-IN / STASH
+-- ============================================================
+Config.ClockInLocation = vector3(126.06, -3007.91, 6.04)
+Config.StashLocation   = vector3(128.57, -3009.02, 6.04)
+
+-- ============================================================
+--  CRAFTING BENCHES
+-- ============================================================
+Config.CraftingLocations = {
+    vector3(126.32, -3030.21, 6.06),
+    vector3(124.48, -3031.73, 6.04),
+    vector3(124.33, -3028.98, 6.04),
+    vector3(126.78, -3029.01, 6.04),
+}
+
 -- !! CHANGE ME !! job name that can operate this shop
 -- This is the job your in-game 'tuner' mechanic character will have
 Config.RequiredJob  = 'tuner'
