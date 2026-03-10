@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;700;900&family=Rajdhani:wght@400;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Exo 2', sans-serif;
+    background: rgba(0, 0, 0, 0);  /* explicit transparent — FiveM requires this */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  #overlay {
+    display: flex;          /* always in DOM so messages reach JS */
+    flex-direction: column;
+    align-items: center;
+    width: 780px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.4s ease;
+  }
+
+  #overlay.visible {
+    opacity: 1;
+    visibility: visible;
+    animation: fadeIn 0.5s ease forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Header ── */
+  .header {
+    width: 100%;
+    background: linear-gradient(90deg, #c00 0%, #900 40%, #111 100%);
+    border-left: 6px solid #ff0000;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .header-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+  .header-sub {
+    font-size: 13px;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 2px;
+  }
+  .f1-logo {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 22px;
+    font-weight: 900;
+    color: #fff;
+    background: #e10600;
+    padding: 4px 12px;
+    clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+    letter-spacing: 2px;
+  }
+
+  /* ── Podium row ── */
+  .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: rgba(8, 8, 8, 0.95);
+  }
+
+  .results-table thead tr {
+    background: rgba(255,255,255,0.06);
+  }
+  .results-table thead th {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    padding: 8px 16px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .results-table tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: background 0.2s;
+    animation: rowSlide 0.4s ease forwards;
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  @keyframes rowSlide {
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .results-table tbody tr td {
+    padding: 11px 16px;
+    font-size: 15px;
+    color: #ddd;
+  }
+
+  /* Position column */
+  .col-pos {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 20px !important;
+    font-weight: 700;
+    width: 50px;
+    text-align: center !important;
+  }
+  .pos-1 { color: #FFD700 !important; }
+  .pos-2 { color: #C0C0C0 !important; }
+  .pos-3 { color: #CD7F32 !important; }
+  .pos-dq { color: #ff4444 !important; font-size: 13px !important; }
+
+  /* Name column */
+  .col-name {
+    font-weight: 600;
+    font-size: 16px !important;
+    letter-spacing: 1px;
+  }
+  .row-winner .col-name { color: #FFD700 !important; }
+
+  /* Time column */
+  .col-time {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 17px !important;
+    color: #aaffaa !important;
+    letter-spacing: 1px;
+  }
+  .col-time.dq-time { color: #ff6666 !important; font-size: 13px !important; }
+
+  /* Gap column */
+  .col-gap {
+    font-size: 13px !important;
+    color: rgba(255,255,255,0.45) !important;
+    font-family: 'Rajdhani', sans-serif;
+    letter-spacing: 1px;
+  }
+
+  /* Team colour strip */
+  .col-strip {
+    width: 5px;
+    padding: 0 !important;
+  }
+
+  /* Winner row highlight */
+  .row-winner {
+    background: linear-gradient(90deg, rgba(255,215,0,0.12) 0%, rgba(0,0,0,0) 60%) !important;
+    border-left: 3px solid #FFD700;
+  }
+  .row-dq {
+    background: rgba(255,40,40,0.05) !important;
+    opacity: 0.7;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    width: 100%;
+    background: rgba(8,8,8,0.95);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-note {
+    font-size: 12px;
+    color: rgba(255,255,255,0.3);
+    letter-spacing: 1px;
+  }
+  .countdown-bar {
+    width: 160px;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .countdown-fill {
+    height: 100%;
+    background: #e10600;
+    width: 100%;
+    transition: width linear;
+  }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <div class="header">
+    <div>
+      <div class="header-title">Race Results</div>
+      <div class="header-sub" id="header-sub">FLAME CITY GRAND PRIX</div>
+    </div>
+    <div class="f1-logo">F1</div>
+  </div>
+
+  <table class="results-table">
+    <thead>
+      <tr>
+        <th style="width:5px"></th>
+        <th>POS</th>
+        <th>DRIVER</th>
+        <th>TIME</th>
+        <th>GAP</th>
+      </tr>
+    </thead>
+    <tbody id="results-body"></tbody>
+  </table>
+
+  <div class="footer">
+    <div class="footer-note" id="footer-note">Teleporting in <span id="tp-countdown">15</span>s</div>
+    <div class="countdown-bar"><div class="countdown-fill" id="countdown-fill"></div></div>
+  </div>
+</div>
+
+<script>
+  const STRIP_COLOURS = ['#e10600','#0090ff','#00d2be','#ff8000','#ffffff','#900000'];
+
+  window.addEventListener('message', function(e) {
+    const data = e.data;
+    if (data.action === 'showResults') showResults(data);
+    if (data.action === 'hideResults') hideOverlay();
+  });
+
+  function showResults(data) {
+    const overlay  = document.getElementById('overlay');
+    const tbody    = document.getElementById('results-body');
+    const sub      = document.getElementById('header-sub');
+
+    sub.textContent = data.subtitle || 'FLAME CITY GRAND PRIX';
+    tbody.innerHTML = '';
+
+    const finishers = (data.results || []).filter(r => !r.dq);
+    const dqd       = (data.results || []).filter(r => r.dq);
+    const all       = [...finishers, ...dqd];
+
+    all.forEach((entry, idx) => {
+      const tr = document.createElement('tr');
+      tr.style.animationDelay = (idx * 80) + 'ms';
+
+      let posClass  = '';
+      let rowClass  = '';
+      let timeStr   = entry.time  || '—';
+      let gapStr    = entry.gap   || '';
+      let timeClass = 'col-time';
+
+      if (entry.dq) {
+        posClass  = 'pos-dq';
+        rowClass  = 'row-dq';
+        timeStr   = entry.dqReason || 'DQ';
+        timeClass = 'col-time dq-time';
+        gapStr    = '';
+      } else if (entry.pos === 1) {
+        posClass = 'pos-1';
+        rowClass = 'row-winner';
+        gapStr   = 'WINNER';
+      } else if (entry.pos === 2) {
+        posClass = 'pos-2';
+      } else if (entry.pos === 3) {
+        posClass = 'pos-3';
+      }
+
+      const stripColour = STRIP_COLOURS[(entry.pos - 1) % STRIP_COLOURS.length] || '#444';
+      const posLabel    = entry.dq ? 'DQ' : (entry.pos ? 'P' + entry.pos : '—');
+
+      tr.className = rowClass;
+      tr.innerHTML = `
+        <td class="col-strip" style="background:${entry.dq ? '#600' : stripColour}"></td>
+        <td class="col-pos ${posClass}">${posLabel}</td>
+        <td class="col-name">${entry.name || '—'}</td>
+        <td class="${timeClass}">${timeStr}</td>
+        <td class="col-gap">${gapStr}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    overlay.classList.add('visible');
+
+    // Countdown bar
+    const totalMs  = (data.delay || 15) * 1000;
+    const fill     = document.getElementById('countdown-fill');
+    const tpSpan   = document.getElementById('tp-countdown');
+    const start    = Date.now();
+
+    fill.style.transitionDuration = totalMs + 'ms';
+    requestAnimationFrame(() => { fill.style.width = '0%'; });
+
+    const tick = setInterval(() => {
+      const elapsed = Date.now() - start;
+      const left    = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
+      tpSpan.textContent = left;
+      if (elapsed >= totalMs) clearInterval(tick);
+    }, 250);
+  }
+
+  function hideOverlay() {
+    document.getElementById('overlay').classList.remove('visible');
+    setTimeout(function() {
+      document.getElementById('results-body').innerHTML = '';
+    }, 500);
+  }
+</script>
+</body>
+</html>

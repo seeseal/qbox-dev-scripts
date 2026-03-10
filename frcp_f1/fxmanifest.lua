@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 
 description 'Flame City F1 System'
-version '1.0.0'
+version '1.2.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -11,6 +11,12 @@ shared_scripts {
 
 client_scripts { 'client/main.lua' }
 server_scripts { 'server/main.lua' }
+
+ui_page 'html/results.html'
+
+files {
+    'html/results.html'
+}
 
 dependencies {
     'qbx_core',
