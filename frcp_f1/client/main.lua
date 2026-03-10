@@ -81,6 +81,7 @@ RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
         onSelect  = function()
             slotLabels = {}
             TriggerServerEvent('frcp_f1:server:clearGrid')
+            lib.showContext('f1_organiser')
         end,
     })
     table.insert(options, {
@@ -88,7 +89,7 @@ RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
         description = 'Spawn cars and freeze drivers on their grid spots',
         icon      = 'flag',
         iconColor = '#ffcc00',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:setupGrid') end,
+        onSelect  = function() TriggerServerEvent('frcp_f1:server:setupGrid'); lib.showContext('f1_organiser') end,
     })
 
     -- ── STEP 2 ────────────────────────────────────────────
@@ -103,7 +104,7 @@ RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
         description = 'SC leads drivers from grid to start — you control when to go',
         icon      = 'car',
         iconColor = '#ffaa00',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:deploySafetyCar') end,
+        onSelect  = function() TriggerServerEvent('frcp_f1:server:deploySafetyCar'); lib.showContext('f1_organiser') end,
     })
 
     -- ── STEP 3 ────────────────────────────────────────────
@@ -118,7 +119,7 @@ RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
         description = 'Despawn SC · Freeze grid · Lights out',
         icon      = 'flag-checkered',
         iconColor = '#00cc44',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:startGlobalRace') end,
+        onSelect  = function() TriggerServerEvent('frcp_f1:server:startGlobalRace'); lib.showContext('f1_organiser') end,
     })
 
     -- ── TOOLS ─────────────────────────────────────────────
@@ -140,7 +141,7 @@ RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
         description = 'Emergency stop — teleports everyone and resets all state',
         icon      = 'circle-xmark',
         iconColor = '#ff4444',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:forceEnd') end,
+        onSelect  = function() TriggerServerEvent('frcp_f1:server:forceEnd'); lib.showContext('f1_organiser') end,
     })
 
     lib.registerContext({ id = 'f1_organiser', title = '  FLAME CITY GP  ·  Race Control', options = options })
@@ -156,10 +157,15 @@ function AssignSlot(slot, playerMap)
     local result = lib.inputDialog('Assign P' .. slot, {
         { type = 'number', label = 'Player Server ID', placeholder = 'e.g. 5', required = true, min = 1 }
     })
-    if not result or not result[1] then return end
+    if not result or not result[1] then lib.showContext('f1_organiser'); return end
     local targetId = tonumber(result[1])
-    if not targetId then lib.notify({ title = 'Invalid ID', type = 'error' }); return end
+    if not targetId then
+        lib.notify({ title = 'Invalid ID', type = 'error' })
+        lib.showContext('f1_organiser')
+        return
+    end
     TriggerServerEvent('frcp_f1:server:assignSlot', slot, targetId)
+    lib.showContext('f1_organiser')
 end
 
 -- ============================================================
@@ -171,6 +177,7 @@ function OpenDirectorCamMenu()
     local result = lib.inputDialog('Race Director Camera', {
         { type = 'number', label = 'Target Player Server ID', placeholder = 'e.g. 3', required = true, min = 1 }
     })
+    lib.showContext('f1_organiser')
     if not result or not result[1] then return end
     TriggerServerEvent('frcp_f1:server:getVehicleForCam', tonumber(result[1]))
 end
@@ -530,17 +537,29 @@ local npcVehicles     = {}    -- { {veh=entity, ped=entity}, ... } (organiser cl
 -- Server sends which slots are empty; organiser spawns NPC cars there.
 -- Bot drivers: scrambled names + team livery colors
 -- Primary = body, Secondary = trim  (GTA colour index 0-159)
+-- RGB colours — much more vivid than GTA palette index
+-- pr = primary RGB, sc = secondary RGB
 local BOT_DRIVERS = {
-    { name="Verstappin",  primary=142, secondary=82  },  -- Red Bul  (dk.blue/yellow)
-    { name="Hamiltun",    primary=64,  secondary=12  },  -- Mercedez (cyan/black)
-    { name="Leclairc",    primary=4,   secondary=82  },  -- Ferarri  (red/yellow)
-    { name="Norriss",     primary=111, secondary=12  },  -- Mclaaren (orange/black)
-    { name="Saainz",      primary=141, secondary=27  },  -- Willians (blue/white)
-    { name="Russull",     primary=64,  secondary=27  },  -- Mercedez 2 (cyan/white)
-    { name="Alonzo",      primary=141, secondary=156 },  -- Alpyne   (blue/pink)
-    { name="Piastrii",    primary=111, secondary=17  },  -- Mclaaren 2 (orange/gold)
-    { name="Cheeco",      primary=142, secondary=27  },  -- RB       (dk.blue/white)
-    { name="Hulkenburg",  primary=27,  secondary=4   },  -- Haaz     (white/red)
+    -- Verstappin  → Red Bull: midnight blue body, vivid yellow nose
+    { name="Verstappin", pr={0,6,61},      sc={255,214,0}   },
+    -- Hamiltun    → Mercedes: black body, teal trim
+    { name="Hamiltun",   pr={15,15,15},    sc={0,210,190}   },
+    -- Leclairc    → Ferrari: Scuderia red body, yellow shield
+    { name="Leclairc",   pr={220,0,0},     sc={255,186,0}   },
+    -- Norriss     → McLaren: papaya orange body, black trim
+    { name="Norriss",    pr={255,128,0},   sc={10,10,10}    },
+    -- Saainz      → Williams: royal blue body, white stripe
+    { name="Saainz",     pr={0,60,255},    sc={255,255,255} },
+    -- Russull     → Mercedes 2: silver body, teal trim
+    { name="Russull",    pr={180,180,180}, sc={0,210,190}   },
+    -- Alonzo      → Alpine: French blue body, hot pink accent
+    { name="Alonzo",     pr={0,100,255},   sc={255,0,120}   },
+    -- Piastrii    → McLaren 2: papaya orange, gold accent
+    { name="Piastrii",   pr={255,128,0},   sc={200,150,0}   },
+    -- Cheeco      → RB Honda: dark navy, white stripe
+    { name="Cheeco",     pr={14,14,80},    sc={240,240,240} },
+    -- Hulkenburg  → Haas: white body, red stripe
+    { name="Hulkenburg", pr={235,235,235}, sc={180,0,0}     },
 }
 local function RandomBotDriver(usedNames)
     local pool = {}
@@ -548,7 +567,7 @@ local function RandomBotDriver(usedNames)
         if not usedNames[d.name] then table.insert(pool, d) end
     end
     if #pool == 0 then
-        return { name="Driver"..math.random(100,999), primary=27, secondary=4 }
+        return { name="Driver"..math.random(100,999), pr={200,200,200}, sc={180,0,0} }
     end
     return pool[math.random(1, #pool)]
 end
@@ -578,8 +597,9 @@ RegisterNetEvent('frcp_f1:client:spawnNPCs', function(emptySlots)
         SetVehicleEngineOn(veh, false, true, false)
         FreezeEntityPosition(veh, true)
         SetVehicleModKit(veh, 0)
-        -- Apply team livery colors
-        SetVehicleColours(veh, driver.primary, driver.secondary)
+        -- Apply vivid RGB team livery — bypasses the GTA palette
+        SetVehicleCustomPrimaryColour(veh,   driver.pr[1], driver.pr[2], driver.pr[3])
+        SetVehicleCustomSecondaryColour(veh, driver.sc[1], driver.sc[2], driver.sc[3])
 
         local ped = CreatePedInsideVehicle(veh, 26, pedModel, -1, true, false)
         SetEntityAsMissionEntity(ped, true, true)
@@ -830,6 +850,48 @@ RegisterNetEvent('frcp_f1:client:hideResults', function() end)
 -- ============================================================
 -- 13. SPAWN & CLEANUP
 -- ============================================================
+-- Random vivid livery colours for the player's car each race
+local function RandomPlayerLivery(veh)
+    -- Generate two visually distinct vivid random colours
+    local hue1 = math.random(0, 359)
+    local hue2 = (hue1 + 150 + math.random(0, 60)) % 360  -- complementary-ish offset
+    local function HsvToRgb(h, s, v)
+        local i = math.floor(h / 60) % 6
+        local f = h / 60 - math.floor(h / 60)
+        local p = math.floor(v * (1 - s) * 255)
+        local q = math.floor(v * (1 - f * s) * 255)
+        local t = math.floor(v * (1 - (1 - f) * s) * 255)
+        v = math.floor(v * 255)
+        if i == 0 then return v, t, p
+        elseif i == 1 then return q, v, p
+        elseif i == 2 then return p, v, t
+        elseif i == 3 then return p, q, v
+        elseif i == 4 then return t, p, v
+        else return v, p, q end
+    end
+    local r1,g1,b1 = HsvToRgb(hue1, 0.9, 0.95)
+    local r2,g2,b2 = HsvToRgb(hue2, 0.8, 0.85)
+    SetVehicleCustomPrimaryColour(veh, r1, g1, b1)
+    SetVehicleCustomSecondaryColour(veh, r2, g2, b2)
+end
+
+-- Max performance mods for openwheel1
+local function ApplyMaxMods(veh)
+    SetVehicleModKit(veh, 0)
+    -- Iterate all mod slots 0-49 and apply max value
+    local modSlots = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23}
+    for _, slot in ipairs(modSlots) do
+        local count = GetNumVehicleMods(veh, slot)
+        if count > 0 then
+            SetVehicleMod(veh, slot, count - 1, false)
+        end
+    end
+    -- Turbo
+    ToggleVehicleMod(veh, 18, true)
+    -- Xenon lights
+    ToggleVehicleMod(veh, 22, true)
+end
+
 RegisterNetEvent('frcp_f1:client:spawnYourCar', function(spot)
     local model = Config.F1CarModel
     RequestModel(model)
@@ -837,6 +899,8 @@ RegisterNetEvent('frcp_f1:client:spawnYourCar', function(spot)
 
     myRaceCar = CreateVehicle(model, spot.x, spot.y, spot.z, spot.w, true, false)
     ApplyF1Handling(myRaceCar)
+    ApplyMaxMods(myRaceCar)
+    RandomPlayerLivery(myRaceCar)
 
     local plate = GetVehicleNumberPlateText(myRaceCar)
     TriggerEvent('vehiclekeys:client:SetOwner', plate)
@@ -849,9 +913,7 @@ RegisterNetEvent('frcp_f1:client:spawnYourCar', function(spot)
     drsOpen      = false
     engineStatus = "OK"
 
-    -- RPM LOCK: While the car is frozen on the grid (engine off),
-    -- clamp RPM to idle (0.1) so the car doesn't rev or make noise.
-    -- Once isRacing becomes true the thread exits and normal RPM applies.
+    -- RPM lock while frozen on grid
     CreateThread(function()
         while myRaceCar and DoesEntityExist(myRaceCar) and not isRacing do
             SetVehicleCurrentRpm(myRaceCar, 0.1)
