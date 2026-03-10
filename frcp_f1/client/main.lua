@@ -754,15 +754,17 @@ RegisterNetEvent('frcp_f1:client:beginFormationLap', function()
                 CreateThread(function()
                     for _, dest in ipairs(route) do
                         if not formationActive then break end
-                        TaskVehicleDriveToCoordLongrange(ped, veh,
+                        TaskVehicleDriveToCoord(ped, veh,
                             dest.x, dest.y, dest.z,
                             maxMs * 0.92,
-                            786603,
-                            5.0)
+                            0,
+                            786603,  -- formation: stay on road, follow SC
+                            5.0,
+                            25.0)    -- large radius so they don't brake to stop
                         while formationActive do
                             if not DoesEntityExist(veh) then break end
                             local pos = GetEntityCoords(veh)
-                            if #(pos - dest) < 18.0 then break end
+                            if #(pos - dest) < 22.0 then break end
                             Wait(300)
                         end
                     end
@@ -928,61 +930,73 @@ RegisterNetEvent('frcp_f1:client:startRace', function()
     -- Each NPC gets its own thread driving the full race distance.
     -- Speed varies slightly per NPC so they spread out naturally.
     -- They park back at their grid spot after finishing.
+    -- Driving style 1074528293:
+    --   Full throttle, ignores traffic/peds, no braking to stop at destination.
+    --   GTA uses this internally for its own race AI.
+    local RACE_DRIVE_STYLE = 1074528293
+
     for npcIdx, npc in ipairs(npcVehicles) do
         if DoesEntityExist(npc.veh) and DoesEntityExist(npc.ped) then
             FreezeEntityPosition(npc.veh, false)
             SetVehicleEngineOn(npc.veh, true, false, false)
-            SetVehicleMaxSpeed(npc.veh, 0.0)  -- remove cap, let handling define top speed
+            SetVehicleMaxSpeed(npc.veh, 0.0)
+
+            -- Boost drive force to compensate for GTA AI's ~70% throttle efficiency
+            -- so bots hit similar speeds to a human flooring it
+            SetVehicleHandlingFloat(npc.veh, 'CHandlingData', 'fInitialDriveForce', BASE_DRIVE_FORCE * 1.35)
 
             local ped = npc.ped
             local veh = npc.veh
-            -- Same spec as player. Tiny variance so bots spread out naturally.
-            local paceVariance = 0.96 + (math.random() * 0.10)  -- 0.96–1.06
+            -- Slight pace variance per bot so the field spreads naturally
+            local paceVariance = 0.97 + (math.random() * 0.08)  -- 0.97–1.05
             local npcTopSpeed  = (BASE_TOP_SPEED * paceVariance) / 3.6
 
-            local botId   = npc.id
+            local botId = npc.id
             CreateThread(function()
                 local botLap = 1
                 local botCP  = 1
 
-                -- Drive every lap
                 for lap = 1, Config.MaxLaps do
                     botLap = lap
-                    -- Drive every checkpoint in this lap
                     for cpIdx, cp in ipairs(Config.Checkpoints) do
                         botCP = cpIdx
                         if not DoesEntityExist(veh) then return end
 
-                        TaskVehicleDriveToCoordLongrange(ped, veh,
+                        -- TaskVehicleDriveToCoord (not Longrange):
+                        --   No nav-mesh → no braking to a stop.
+                        --   Large arrival radius (35m) → bot clips the checkpoint
+                        --   zone at speed and immediately gets the next task.
+                        TaskVehicleDriveToCoord(ped, veh,
                             cp.x, cp.y, cp.z,
                             npcTopSpeed,
-                            6,       -- aggressive: full speed, ignores traffic rules
-                            4.0)
+                            0,               -- 0 = no stopping distance override
+                            RACE_DRIVE_STYLE,
+                            10.0,            -- steering multiplier (higher = sharper)
+                            35.0)            -- arrival radius — large so no decel
 
-                        -- Wait until close to checkpoint, then report progress
+                        -- Poll arrival at a tighter radius than the task's own
+                        -- so we chain tasks with no gap
                         while true do
                             if not DoesEntityExist(veh) then return end
                             local pos = GetEntityCoords(veh)
-                            if #(pos - vector3(cp.x, cp.y, cp.z)) < 16.0 then break end
-                            Wait(400)
+                            if #(pos - vector3(cp.x, cp.y, cp.z)) < 30.0 then break end
+                            Wait(200)
                         end
 
-                        -- Report checkpoint to server so leaderboard updates
                         TriggerServerEvent('frcp_f1:server:npcProgress', botId, botLap, botCP)
                     end
                 end
 
-                -- Report finish
                 TriggerServerEvent('frcp_f1:server:npcFinish', botId)
 
-                -- Drive to post-race area and park
+                -- Cool-down drive to pit area
                 if DoesEntityExist(veh) then
                     local dest = Config.PostRaceLocation
-                    TaskVehicleDriveToCoordLongrange(ped, veh,
+                    TaskVehicleDriveToCoord(ped, veh,
                         dest.x, dest.y, dest.z,
-                        npcTopSpeed * 0.5,
-                        786603, 3.0)
-                    Wait(8000)
+                        npcTopSpeed * 0.4,
+                        0, 786603, 5.0, 8.0)
+                    Wait(10000)
                     if DoesEntityExist(ped) then ClearPedTasks(ped) end
                     if DoesEntityExist(veh) then FreezeEntityPosition(veh, true) end
                 end
