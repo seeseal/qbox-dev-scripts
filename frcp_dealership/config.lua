@@ -71,7 +71,7 @@ Config.JobGrades = {
     [0] = { label = "Trainee",         isBoss = false, canTestDrive = true,  canSell = false, commission = 0  },
     [1] = { label = "Salesperson",     isBoss = false, canTestDrive = true,  canSell = true,  commission = 10 },
     [2] = { label = "Sales Manager",   isBoss = false, canTestDrive = true,  canSell = true,  commission = 20 },
-    [3] = { label = "General Manager", isBoss = true,  canTestDrive = true,  canSell = true,  commission = 0  },
+    [3] = { label = "General Manager", isBoss = true,  canTestDrive = true,  canSell = true,  commission = 15 },
 }
 
 -- Commission math reference (for your economy):
