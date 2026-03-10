@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Illegal Tuner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg:        #0d0d12;
+    --surface:   #13131a;
+    --surface2:  #1a1a24;
+    --border:    rgba(130,100,255,0.15);
+    --accent:    #7c5af0;
+    --accent2:   #a07af8;
+    --accent-glow: rgba(124,90,240,0.25);
+    --red:       #f04f6e;
+    --green:     #4ff09e;
+    --yellow:    #f0c94f;
+    --orange:    #f07a4f;
+    --text:      #e8e6f0;
+    --text-dim:  #7a7890;
+    --radius:    12px;
+    --radius-sm: 8px;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: 'Rajdhani', sans-serif;
+    background: transparent;
+    color: var(--text);
+    user-select: none;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  /* ── SHARED PANEL BASE ───────────────────── */
+  .panel {
+    display: none;
+    position: fixed;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(124,90,240,0.08), inset 0 1px 0 rgba(255,255,255,0.04);
+    overflow: hidden;
+  }
+  .panel.visible { display: flex; flex-direction: column; }
+
+  /* Panel header */
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, rgba(124,90,240,0.08) 0%, transparent 60%);
+  }
+  .panel-icon {
+    width: 32px; height: 32px;
+    background: var(--accent-glow);
+    border: 1px solid rgba(124,90,240,0.4);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .panel-title {
+    font-size: 15px; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text);
+  }
+  .panel-subtitle {
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 0.03em; margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .panel-close {
+    margin-left: 8px;
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    background: rgba(240,79,110,0.1);
+    border: 1px solid rgba(240,79,110,0.2);
+    color: var(--red);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .panel-close:hover { background: rgba(240,79,110,0.25); }
+
+  /* ── SHOP MENU ───────────────────────────── */
+  #shop-panel {
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 460px;
+    max-height: 80vh;
+    animation: panelIn 0.2s cubic-bezier(0.34,1.56,0.64,1);
+  }
+
+  @keyframes panelIn {
+    from { opacity:0; transform: translate(-50%,-50%) scale(0.94); }
+    to   { opacity:1; transform: translate(-50%,-50%) scale(1); }
+  }
+
+  .shop-body { padding: 12px; overflow-y: auto; flex: 1; }
+  .shop-body::-webkit-scrollbar { width: 3px; }
+  .shop-body::-webkit-scrollbar-track { background: transparent; }
+  .shop-body::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 2px; }
+
+  .section-label {
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 8px 8px 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after {
+    content:''; flex:1; height:1px;
+    background: linear-gradient(90deg, var(--border), transparent);
+  }
+
+  .menu-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 14px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid transparent;
+    margin-bottom: 3px;
+    position: relative;
+    overflow: hidden;
+  }
+  .menu-item::before {
+    content:'';
+    position: absolute; left:0; top:0; bottom:0; width:3px;
+    background: var(--accent);
+    transform: scaleY(0);
+    transition: transform 0.15s;
+    border-radius: 0 2px 2px 0;
+  }
+  .menu-item:hover { background: var(--surface2); border-color: var(--border); }
+  .menu-item:hover::before { transform: scaleY(1); }
+  .menu-item:active { transform: scale(0.99); }
+
+  .menu-item.installed {
+    background: rgba(79,240,158,0.04);
+    border-color: rgba(79,240,158,0.12);
+    cursor: default;
+  }
+  .menu-item.installed::before { background: var(--green); transform: scaleY(1); }
+  .menu-item.disabled-item {
+    opacity: 0.4; cursor: not-allowed;
+  }
+  .menu-item.section-divider {
+    cursor: default; padding: 0;
+    background: transparent; border: none; margin: 4px 0 0;
+  }
+
+  .item-icon {
+    width: 36px; height: 36px; flex-shrink: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    transition: all 0.15s;
+  }
+  .menu-item:hover .item-icon {
+    border-color: rgba(124,90,240,0.4);
+    background: var(--accent-glow);
+  }
+  .menu-item.installed .item-icon {
+    border-color: rgba(79,240,158,0.3);
+    background: rgba(79,240,158,0.08);
+  }
+
+  .item-text { flex: 1; min-width: 0; }
+  .item-name {
+    font-size: 13px; font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .item-desc {
+    font-size: 11px; color: var(--text-dim);
+    margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .item-price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 500;
+    color: var(--accent2);
+    white-space: nowrap;
+  }
+  .item-badge {
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 20px;
+  }
+  .badge-green { background: rgba(79,240,158,0.15); color: var(--green); border: 1px solid rgba(79,240,158,0.25); }
+  .badge-red   { background: rgba(240,79,110,0.15); color: var(--red);   border: 1px solid rgba(240,79,110,0.25); }
+
+  /* confirm dialog removed */
+
+  /* ── STANCE PANEL ────────────────────────── */
+  #stance-panel {
+    bottom: 24px; left: 24px;
+    width: 320px;
+    animation: slideUp 0.2s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  @keyframes slideUp {
+    from { opacity:0; transform: translateY(12px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+
+  .stance-body { padding: 14px 16px; }
+
+  .stance-prop { margin-bottom: 14px; }
+  .stance-prop:last-child { margin-bottom: 0; }
+
+  .stance-prop-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .stance-prop-name {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stance-prop-name .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .stance-prop-name.active .dot { background: var(--accent2); box-shadow: 0 0 6px var(--accent); }
+  .stance-prop-name.active { color: var(--accent2); }
+
+  .stance-prop-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; font-weight: 500;
+    color: var(--text);
+  }
+
+  .stance-track {
+    height: 6px; background: var(--surface2);
+    border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--border);
+    position: relative;
+  }
+  .stance-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.1s, background 0.2s;
+    position: relative;
+  }
+  /* Center marker */
+  .stance-track::after {
+    content:'';
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 1px;
+    background: rgba(255,255,255,0.15);
+    transform: translateX(-50%);
+  }
+
+  .stance-controls {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 6px; margin-top: 14px;
+  }
+  .stance-hint {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 7px 10px;
+    font-size: 11px; color: var(--text-dim);
+    text-align: center;
+  }
+  .stance-hint span { color: var(--accent2); font-weight: 600; }
+  .stance-hint.wide { grid-column: 1 / -1; }
+
+  /* ── NOS HUD ─────────────────────────────── */
+  #nos-hud {
+    bottom: 24px; right: 24px;
+    width: 220px;
+    padding: 0;
+  }
+  #nos-hud .panel-header { padding: 10px 14px 9px; }
+  #nos-hud .panel-title { font-size: 12px; }
+
+  .nos-body { padding: 10px 14px 12px; }
+
+  .nos-status {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .nos-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .nos-dot.ready   { background: var(--green);  box-shadow: 0 0 8px var(--green); }
+  .nos-dot.active  { background: var(--red);    box-shadow: 0 0 12px var(--red); animation: pulse 0.4s infinite alternate; }
+  .nos-dot.empty   { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+  .nos-dot.cooldown{ background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+
+  @keyframes pulse { from { opacity:0.6; } to { opacity:1; } }
+
+  .nos-status-text {
+    font-size: 12px; font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .nos-status-text.ready    { color: var(--green); }
+  .nos-status-text.active   { color: var(--red); }
+  .nos-status-text.empty    { color: var(--orange); }
+  .nos-status-text.cooldown { color: var(--yellow); }
+
+  .nos-bar-wrap {
+    height: 5px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+  }
+  .nos-bar-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 0.1s linear, background 0.3s;
+  }
+
+  .nos-bar-label {
+    display: flex; justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: var(--text-dim);
+  }
+
+  .nos-key-hint {
+    margin-top: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 10px; color: var(--text-dim);
+    text-align: center;
+  }
+  .nos-key-hint span {
+    color: var(--accent2); font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── SHOP MENU ─────────────────────────── -->
+<div id="shop-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-icon">🔧</div>
+    <div class="panel-title">Illegal Tuner</div>
+    <div class="panel-subtitle" id="shop-subtitle">Select a service</div>
+    <div class="panel-close" onclick="closeShop()">✕</div>
+  </div>
+  <div class="shop-body" id="shop-body"></div>
+</div>
+
+<!-- confirm panel removed — purchases are immediate -->
+
+<!-- ── STANCE PANEL ──────────────────────── -->
+<div id="stance-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-icon">📐</div>
+    <div class="panel-title">Stance Editor</div>
+    <div class="panel-subtitle">LIVE</div>
+  </div>
+  <div class="stance-body">
+    <div class="stance-prop" id="sp-height">
+      <div class="stance-prop-header">
+        <div class="stance-prop-name" id="sn-height"><span class="dot"></span>Ride Height</div>
+        <div class="stance-prop-value" id="sv-height">0.000</div>
+      </div>
+      <div class="stance-track"><div class="stance-fill" id="sf-height" style="width:50%"></div></div>
+    </div>
+    <div class="stance-prop" id="sp-camberf">
+      <div class="stance-prop-header">
+        <div class="stance-prop-name" id="sn-camberf"><span class="dot"></span>Front Camber</div>
+        <div class="stance-prop-value" id="sv-camberf">0.000</div>
+      </div>
+      <div class="stance-track"><div class="stance-fill" id="sf-camberf" style="width:50%"></div></div>
+    </div>
+    <div class="stance-prop" id="sp-camberr">
+      <div class="stance-prop-header">
+        <div class="stance-prop-name" id="sn-camberr"><span class="dot"></span>Rear Camber</div>
+        <div class="stance-prop-value" id="sv-camberr">0.000</div>
+      </div>
+      <div class="stance-track"><div class="stance-fill" id="sf-camberr" style="width:50%"></div></div>
+    </div>
+    <div class="stance-controls">
+      <div class="stance-hint"><span>↑↓</span> Select</div>
+      <div class="stance-hint"><span>←→</span> Adjust</div>
+      <div class="stance-hint"><span>SHIFT</span> + ←→ Fast</div>
+      <div class="stance-hint"><span>ENTER</span> Save</div>
+      <div class="stance-hint wide"><span>BACKSPACE</span> Cancel</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── NOS HUD ───────────────────────────── -->
+<div id="nos-hud" class="panel">
+  <div class="panel-header">
+    <div class="panel-icon">⚡</div>
+    <div class="panel-title">Nitrous</div>
+  </div>
+  <div class="nos-body">
+    <div class="nos-status">
+      <div class="nos-dot ready" id="nos-dot"></div>
+      <div class="nos-status-text ready" id="nos-status-text">READY</div>
+    </div>
+    <div class="nos-bar-wrap">
+      <div class="nos-bar-fill" id="nos-bar" style="width:100%; background: var(--green)"></div>
+    </div>
+    <div class="nos-bar-label">
+      <span id="nos-bar-left">CHARGED</span>
+      <span id="nos-bar-right"></span>
+    </div>
+    <div class="nos-key-hint" id="nos-key-hint">Press <span>L-SHIFT</span> to activate</div>
+  </div>
+</div>
+
+<script>
+// ── STATE ─────────────────────────────────
+let confirmCb = null;
+let shopCallback = null;
+
+// ── UTILS ─────────────────────────────────
+function fmt(n) { return '$' + Math.round(n).toLocaleString(); }
+function fmtVal(v) { return (v >= 0 ? '+' : '') + parseFloat(v).toFixed(3); }
+
+function post(event, data = {}) {
+  fetch(`https://fcrp_tuner/${event}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+// ── SHOP ──────────────────────────────────
+function openShop(data) {
+  const panel = document.getElementById('shop-panel');
+  const body  = document.getElementById('shop-body');
+  document.getElementById('shop-subtitle').textContent = data.subtitle || 'Select a service';
+  body.innerHTML = '';
+
+  data.items.forEach(item => {
+    if (item.type === 'section') {
+      const el = document.createElement('div');
+      el.className = 'section-label';
+      el.textContent = item.label;
+      body.appendChild(el);
+      return;
+    }
+
+    const el = document.createElement('div');
+    el.className = 'menu-item' +
+      (item.installed ? ' installed' : '') +
+      (item.disabled  ? ' disabled-item' : '');
+
+    el.innerHTML = `
+      <div class="item-icon">${item.icon || '🔧'}</div>
+      <div class="item-text">
+        <div class="item-name">${item.name}</div>
+        <div class="item-desc">${item.desc || ''}</div>
+      </div>
+      ${item.installed
+        ? '<span class="item-badge badge-green">Installed</span>'
+        : item.price
+          ? `<div class="item-price">${fmt(item.price)}</div>`
+          : ''}
+    `;
+
+    if (!item.installed && !item.disabled && item.action) {
+      el.onclick = () => post('shopAction', { action: item.action, data: item.actionData || {} });
+    }
+    body.appendChild(el);
+  });
+
+  panel.classList.add('visible');
+}
+
+function closeShop() {
+  document.getElementById('shop-panel').classList.remove('visible');
+  post('shopClosed');
+}
+
+// ── CONFIRM — removed, purchases are immediate ──
+
+// ── STANCE ────────────────────────────────
+const STANCE_PROPS = ['height', 'camberf', 'camberr'];
+const STANCE_COLORS = [
+  'linear-gradient(90deg, #7c5af0, #a07af8)',
+  'linear-gradient(90deg, #f04f6e, #f07a4f)',
+  'linear-gradient(90deg, #4ff09e, #4fd0f0)',
+];
+
+function openStance() {
+  document.getElementById('stance-panel').classList.add('visible');
+}
+
+function closeStance() {
+  document.getElementById('stance-panel').classList.remove('visible');
+}
+
+function updateStance(data) {
+  // data: { selected: 0|1|2, height, camberf, camberr, heightMin, heightMax, camberMin, camberMax }
+  const props = [
+    { key: 'height',  val: data.height,  mn: data.heightMin,  mx: data.heightMax  },
+    { key: 'camberf', val: data.camberf, mn: data.camberMin,  mx: data.camberMax  },
+    { key: 'camberr', val: data.camberr, mn: data.camberMin,  mx: data.camberMax  },
+  ];
+
+  props.forEach((p, i) => {
+    const active = (data.selected === i + 1);
+    const nameEl = document.getElementById(`sn-${p.key}`);
+    const valEl  = document.getElementById(`sv-${p.key}`);
+    const fillEl = document.getElementById(`sf-${p.key}`);
+
+    nameEl.className = 'stance-prop-name' + (active ? ' active' : '');
+    valEl.textContent = fmtVal(p.val);
+
+    // Map value to 0-100% (center = 50%)
+    const range = p.mx - p.mn;
+    const pct = range > 0 ? ((p.val - p.mn) / range) * 100 : 50;
+    fillEl.style.width = Math.max(2, pct) + '%';
+    fillEl.style.background = active ? STANCE_COLORS[i] : 'rgba(130,100,255,0.3)';
+  });
+}
+
+// ── NOS HUD ───────────────────────────────
+function showNos(show) {
+  const hud = document.getElementById('nos-hud');
+  hud.style.display = show ? 'flex' : 'none';
+  if (show) hud.classList.add('visible');
+  else hud.classList.remove('visible');
+}
+
+function updateNos(data) {
+  // data.state: 'ready' | 'active' | 'empty' | 'cooldown'
+  // data.progress: 0-1 (burn remaining fraction or cooldown remaining fraction)
+  // data.label: string for right side
+  // data.countdown: string like "4.2s" or "28m 30s"
+  const dot    = document.getElementById('nos-dot');
+  const text   = document.getElementById('nos-status-text');
+  const bar    = document.getElementById('nos-bar');
+  const left   = document.getElementById('nos-bar-left');
+  const right  = document.getElementById('nos-bar-right');
+  const hint   = document.getElementById('nos-key-hint');
+
+  dot.className   = `nos-dot ${data.state}`;
+  text.className  = `nos-status-text ${data.state}`;
+
+  const colors = { ready:'var(--green)', active:'var(--red)', empty:'var(--orange)', cooldown:'var(--yellow)' };
+  bar.style.background = colors[data.state] || 'var(--green)';
+  bar.style.width = Math.max(0, Math.min(100, (data.progress ?? 1) * 100)) + '%';
+
+  const labels = {
+    ready:    ['CHARGED',   ''],
+    active:   ['BURNING',   data.countdown || ''],
+    empty:    ['EMPTY',     'refill needed'],
+    cooldown: ['COOLDOWN',  data.countdown || ''],
+  };
+  const statusText = {
+    ready: 'READY', active: 'ACTIVE', empty: 'EMPTY', cooldown: 'COOLDOWN'
+  };
+
+  text.textContent = statusText[data.state] || 'READY';
+  left.textContent  = (labels[data.state] || ['',''])[0];
+  right.textContent = (labels[data.state] || ['',''])[1];
+
+  const hints = {
+    ready:    `Press <span>L-SHIFT</span> to activate`,
+    active:   `<span>NOS BURNING</span>`,
+    empty:    `Drive to <span>refill station</span>`,
+    cooldown: null,
+  };
+  const hintText = hints[data.state];
+  if (hintText === null) {
+    hint.style.display = 'none';
+  } else {
+    hint.style.display = '';
+    hint.innerHTML = hintText;
+  }
+}
+
+// ── NUI MESSAGE HANDLER ───────────────────
+window.addEventListener('message', e => {
+  const d = e.data;
+  switch (d.type) {
+    case 'openShop':    openShop(d.data);         break;
+    case 'closeShop':   closeShop();               break;
+    case 'openStance':  openStance();              break;
+    case 'closeStance': closeStance();             break;
+    case 'updateStance':updateStance(d.data);      break;
+    case 'showNos':     showNos(d.show);           break;
+    case 'updateNos':   updateNos(d.data);         break;
+  }
+});
+
+// Close shop on ESC
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('shop-panel').classList.contains('visible')) {
+      closeShop();
+    }
+  }
+});
+</script>
+</body>
+</html>

@@ -56,16 +56,11 @@ local Locale = {
     log_chip_pd         = 'Officer **%s** removed engine chip from plate **%s**.',
 }
 
--- Make strings accessible via lib.locale() in Qbox
-if lib and lib.setLocale then
-    lib.setLocale(Locale)
-else
-    -- Fallback direct getter used internally
-    function GetLocale(key, ...)
-        local str = Locale[key] or ('MISSING_LOCALE:'..key)
-        if select('#', ...) > 0 then
-            return str:format(...)
-        end
-        return str
+-- Direct getter used by client/main.lua's L() helper
+function GetLocale(key, ...)
+    local str = Locale[key] or ('MISSING_LOCALE:' .. key)
+    if select('#', ...) > 0 then
+        return str:format(...)
     end
+    return str
 end

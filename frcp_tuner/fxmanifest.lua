@@ -7,16 +7,17 @@ author      'Flame City Dev'
 version     '1.0.0'
 
 shared_scripts {
-    '@ox_lib/init.lua',
     'config.lua',
     'locales/en.lua',
 }
 
 client_scripts {
+    '@ox_lib/init.lua',
     'client/main.lua',
 }
 
 server_scripts {
+    '@ox_lib/init.lua',
     '@oxmysql/lib/MySQL.lua',
     'server/main.lua',
 }
