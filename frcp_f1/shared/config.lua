@@ -1,26 +1,35 @@
 Config = {}
 
-Config.F1CarModel = `br8` -- The locked model for the event
-Config.MaxLaps = 5
-Config.PrizeMoney = 75000 
-Config.WebhookChannel = "general" 
+Config.F1CarModel  = `openwheel1`
+Config.MaxLaps     = 1
+Config.PrizeMoney  = 75000
+Config.WebhookChannel = "race_logs"
 
-Config.MaxOffTrackDistance = 25.0 
-Config.MinEngineHealth = 900.0 -- 1000 is perfect, 900 is light smoke/damage
+Config.MaxOffTrackDistance = 60.0
+Config.MinEngineHealth     = 850.0
 
--- Grid Positions (X, Y, Z, Heading)
--- IMPORTANT: Use /coords in-game to fill these for your specific starting line
+-- GRID: Main Runway (South Side, facing West)
 Config.GridSpots = {
-    vector4(143.0, -3000.0, 6.0, 270.0), -- Pole Position
-    vector4(140.0, -3005.0, 6.0, 270.0), -- P2
-    vector4(143.0, -3010.0, 6.0, 270.0), -- P3
-    vector4(140.0, -3015.0, 6.0, 270.0), -- P4
-    -- Add as many spots as you expect players
+    vector4(-1558.4, -2763.5, 13.9, 240.0), -- Pole
+    vector4(-1562.1, -2767.8, 13.9, 240.0), -- P2
+    vector4(-1568.5, -2771.6, 13.9, 240.0), -- P3
+    vector4(-1572.6, -2776.2, 13.9, 240.0), -- P4
 }
 
--- The Roadmap (Checkpoints)
+-- Spectator / DQ teleport location
+Config.DQLocation = vec3(-1514.8, -2729.1, 13.9)
+
+-- Checkpoint marker type drawn in the race loop
+-- 42 = tall cylinder (used for the outer glow)
+-- 1  = flat ring     (used for the inner eye-level ring)
+-- Both are drawn in code; this value is kept for reference only.
+Config.FinishHologram = 42
+
+-- CIRCUIT: Loop around LSIA runways
+-- Each vec3 is the CENTRE of a drive-through gate.
+-- Trigger radius is 15 m (set in client/main.lua).
 Config.Checkpoints = {
-    vec3(150.0, -3000.0, 6.0), 
-    vec3(100.0, -2900.0, 6.0), 
-    vec3(50.0, -2800.0, 6.0),  
+    vec3(-1558.4, -2763.5, 13.9), -- CP 1: Start / Finish line
+    vec3(-1844.7, -2923.6, 13.9), -- CP 2: End of Runway 1
+    vec3(-1445.6, -2661.1, 13.9), -- CP 8: Final Straight back to S/F
 }

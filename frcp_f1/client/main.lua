@@ -1,194 +1,323 @@
-local inRace = false
-local currentCheckpoint = 1
+local myRaceCar  = nil
+local isRacing   = false
 local currentLap = 1
-local isDQ = false
-local leaderboard = {}
+local currentCP  = 1
+local currentBlip = nil
 
--- Function to force identical performance and randomize visuals
-function PrepareF1Grid(veh)
-    -- 1. Performance Parity (Identical for everyone)
-    SetVehicleModKit(veh, 0)
-    SetVehicleMod(veh, 11, 3, false) -- Engine Level 4
-    SetVehicleMod(veh, 12, 2, false) -- Brakes Level 3
-    SetVehicleMod(veh, 13, 2, false) -- Transmission Level 3
-    ToggleVehicleMod(veh, 18, true)  -- Turbo
-    SetVehicleFixed(veh)
-    
-    -- 2. Visual Randomization (Team Colors/Decals)
-    -- This ensures players look different but drive the same
-    local randomLivery = math.random(0, GetNumVehicleMods(veh, 48) - 1)
-    local r, g, b = math.random(0, 255), math.random(0, 255), math.random(0, 255)
-    
-    SetVehicleMod(veh, 48, randomLivery, false) -- Apply random Decal/Livery
-    SetVehicleCustomPrimaryColour(veh, r, g, b) -- Apply random Team Color
-    SetVehicleDirtyLevel(veh, 0.0) -- Keep them shiny
-    
-    -- 3. Physics Injection
-    SetVehicleCheatPowerIncrease(veh, 1.4) 
-    -- Increase steering lock so tight F1 corners are possible in 1st person
-    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fSteeringLock', 50.0)
-end
-
--- Main Loop: Logic enforcement
-CreateThread(function()
-    while true do
-        local sleep = 1000
-        if inRace then
-            sleep = 0
-            local ped = cache.ped
-            local veh = GetVehiclePedIsIn(ped, false)
-            local coords = GetEntityCoords(ped)
-
-            -- 1. NPC & Traffic Clearing
-            ClearAreaOfPeds(coords.x, coords.y, coords.z, 200.0, 1)
-            ClearAreaOfVehicles(coords.x, coords.y, coords.z, 200.0, false, false, false, false, false)
-            
-            -- 2. Force First Person
-            SetFollowVehicleCamViewMode(4) 
-            
-            -- 3. Disable Exit Vehicle (Key: F)
-            DisableControlAction(0, 75, true) 
-
-            -- 4. Damage & Pathing Check
-            if not isDQ then
-                if GetVehicleEngineHealth(veh) < Config.MinEngineHealth then
-                    Disqualify("ENGINE FAILURE")
-                end
-                
-                local target = Config.Checkpoints[currentCheckpoint]
-                if #(coords - target) > 100.0 then
-                    Disqualify("OFF TRACK")
-                end
-            end
-        end
-        Wait(sleep)
-    end
-end)
-
-function Disqualify(reason)
-    inRace = false
-    isDQ = true
-    local veh = GetVehiclePedIsIn(cache.ped, false)
-    SetVehicleEngineHealth(veh, -1.0)
-    lib.notify({title = 'DISQUALIFIED', description = reason, type = 'error'})
-    TriggerServerEvent('frcp_f1:server:dqPlayer', reason)
-end
-
--- Race Start Event
-RegisterNetEvent('frcp_f1:client:startRace', function()
-    local ped = cache.ped
-    local veh = GetVehiclePedIsIn(ped, false)
-
-    -- Strict Model Check: Only the BR8 is allowed for the Pro experience
-    if not veh or GetEntityModel(veh) ~= `br8` then
-        lib.notify({
-            title = 'Race Control',
-            description = 'You must be in a Benefactor BR8 to participate!',
-            type = 'error'
-        })
-        return
-    end
-
-    -- Apply the "Fair Play" visuals and performance
-    PrepareF1Grid(veh)
-
-    inRace = true
-    isDQ = false
-    currentCheckpoint = 1
-    currentLap = 1
-
-    FreezeEntityPosition(veh, true)
-    SetVehicleDoorsLocked(veh, 4)
-
-    -- Countdown
-    for i = 5, 1, -1 do
-        lib.showTextUI('**RACE STARTING IN: ' .. i .. '**', {position = 'top-center'})
-        PlaySoundFrontend(-1, "CHECKPOINT_AHEAD", "HUD_MINI_GAME_SOUNDSET", true)
-        Wait(1000)
-    end
-    lib.hideTextUI()
-    
-    FreezeEntityPosition(veh, false)
-    TriggerServerEvent('frcp_f1:server:updateProgress', currentLap, currentCheckpoint)
-    SpawnCheckpoint()
-end)
-
-function SpawnCheckpoint()
-    if currentCheckpoint > #Config.Checkpoints then
-        currentLap = currentLap + 1
-        currentCheckpoint = 1
-    end
-
-    if currentLap > Config.MaxLaps then
-        inRace = false
-        lib.hideTextUI()
-        TriggerServerEvent('frcp_f1:server:finishRace')
-        return
-    end
-
-    local coords = Config.Checkpoints[currentCheckpoint]
-    -- Tracker Loop
-    CreateThread(function()
-        while inRace and not isDQ do
-            Wait(0)
-            DrawMarker(27, coords.x, coords.y, coords.z - 0.9, 0, 0, 0, 0, 0, 0, 10.0, 10.0, 1.0, 0, 150, 255, 100, false, false, 2, false, nil, nil, false)
-            if #(GetEntityCoords(cache.ped) - coords) < 12.0 then
-                currentCheckpoint = currentCheckpoint + 1
-                TriggerServerEvent('frcp_f1:server:updateProgress', currentLap, currentCheckpoint)
-                SpawnCheckpoint()
-                break
-            end
-        end
-    end)
-end
-
-RegisterNetEvent('frcp_f1:client:updateLeaderboard', function(list)
-    if not inRace then return end
-    local text = "**LEADERBOARD**\n"
-    for i, data in ipairs(list) do
-        text = text .. i .. ". " .. data.name .. " (Lap " .. data.lap .. ")\n"
-    end
-    lib.showTextUI(text, {position = 'right-center'})
-end)
-
--- Organizer Menu
+-- ============================================================
+-- 1. ORGANIZER MENU
+-- ============================================================
 RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function()
     lib.registerContext({
-        id = 'f1_organizer_menu',
-        title = 'F1 Race Management',
+        id    = 'f1_menu',
+        title = 'Flame City GP Control',
         options = {
             {
-                title = '1. Prepare Grid',
-                description = 'Spawn BR8s for everyone nearby and align them',
-                icon = 'car-side',
-                onSelect = function()
-                    TriggerServerEvent('frcp_f1:server:setupGrid')
-                end
+                title       = '1. Prepare Grid',
+                description = 'Teleport players into F1 cars',
+                icon        = 'car-side',
+                onSelect    = function() TriggerServerEvent('frcp_f1:server:setupGrid') end
             },
             {
-                title = '2. Start Countdown',
-                description = 'Begin the 5-second countdown for all drivers',
-                icon = 'flag-checkered',
-                onSelect = function()
-                    TriggerServerEvent('frcp_f1:server:startGlobalRace') -- You'll add this to server.lua
-                end
+                title       = '2. START RACE',
+                description = 'Lights out and away we go!',
+                icon        = 'flag-checkered',
+                onSelect    = function() TriggerServerEvent('frcp_f1:server:startGlobalRace') end
             }
         }
     })
-    lib.showContext('f1_organizer_menu')
+    lib.showContext('f1_menu')
 end)
 
--- Preps the car once the server spawns it
-RegisterNetEvent('frcp_f1:client:prepSpawnedCar', function(netId)
-    local timeout = 0
-    while not NetworkDoesEntityExistWithNetworkId(netId) and timeout < 100 do
-        Wait(10)
-        timeout = timeout + 1
+-- ============================================================
+-- 2. PHYSICS
+-- ============================================================
+local function ApplyF1Handling(veh)
+    SetVehicleModKit(veh, 0)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce',        1.85)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fDriveInertia',             1.0)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fDriveBiasFront',           0.0)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fLowSpeedTractionLossMult', 2.8)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDragCoeff',         25.0)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fTractionCurveMax',         4.8)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fTractionCurveMin',         2.6)
+    ModifyVehicleTopSpeed(veh, 60.0)
+end
+
+-- ============================================================
+-- 3. FORZA-STYLE RACING LINE
+-- ============================================================
+local function DrawRacingLine(pCoords, target)
+    if #(pCoords - target) > 120.0 then return end
+
+    local segments = 12
+    -- +180 because DrawMarker type-24 faces away from player by default
+    local heading = math.deg(math.atan(target.x - pCoords.x, target.y - pCoords.y)) + 180.0
+
+    for i = 1, segments do
+        local frac = i / segments
+        local x = pCoords.x + (target.x - pCoords.x) * frac
+        local y = pCoords.y + (target.y - pCoords.y) * frac
+
+        local found, gz = GetGroundZFor_3dCoord(x, y, pCoords.z + 10.0, false)
+        local z = found and (gz - 0.1) or (pCoords.z - 0.3)
+
+        local alpha = math.floor(220 * (1.0 - frac * 0.6))
+
+        DrawMarker(24, x, y, z,
+            0.0, 0.0, 0.0,
+            0.0, 0.0, heading,
+            0.9, 0.9, 0.9,
+            0, 210, 255, alpha,
+            false, false, 2, nil, nil, false)
     end
-    local veh = NetToVeh(netId)
-    if DoesEntityExist(veh) then
-        PrepareF1Grid(veh) -- Uses our previous Tuning/Color function
-        FreezeEntityPosition(veh, true) -- Lock them until race start
-        SetVehicleDoorsLocked(veh, 4)
+end
+
+-- ============================================================
+-- 4. LAP HUD
+-- ============================================================
+local function DrawRaceHUD(lap, maxLaps, cp, totalCPs)
+    SetTextFont(4)
+    SetTextScale(0.0, 0.50)
+    SetTextColour(255, 255, 255, 255)
+    SetTextOutline()
+    SetTextEntry("STRING")
+    AddTextComponentString(string.format("LAP  %d / %d", lap, maxLaps))
+    DrawText(0.82, 0.88)
+
+    SetTextFont(0)
+    SetTextScale(0.0, 0.32)
+    SetTextColour(160, 210, 255, 200)
+    SetTextOutline()
+    SetTextEntry("STRING")
+    AddTextComponentString(string.format("Checkpoint  %d / %d", cp, totalCPs))
+    DrawText(0.82, 0.915)
+end
+
+-- ============================================================
+-- 5. GPS — checkpoint-to-checkpoint
+--
+--    SetNewWaypoint(x, y) tells GTA's GPS to pathfind along the
+--    road network to that point, drawing the coloured route line
+--    on the minimap exactly like a mission waypoint.
+--    We combine it with a blip so the dot appears on the map too.
+-- ============================================================
+local function UpdateRaceWaypoint(coords)
+    if currentBlip and DoesBlipExist(currentBlip) then
+        RemoveBlip(currentBlip)
     end
+
+    currentBlip = AddBlipForCoord(coords.x, coords.y, coords.z)
+    SetBlipSprite(currentBlip, 38)           -- Checkpoint ring icon
+    SetBlipColour(currentBlip, 5)            -- Yellow
+    SetBlipScale(currentBlip, 0.85)
+    SetBlipAsShortRange(currentBlip, false)  -- Always visible on minimap
+    BeginTextCommandSetBlipName("STRING")
+    AddTextComponentString("Next Checkpoint")
+    EndTextCommandSetBlipName(currentBlip)
+
+    -- This is the key call: makes the GPS draw a road-following route line
+    SetNewWaypoint(coords.x, coords.y)
+end
+
+local function ClearWaypoint()
+    if currentBlip and DoesBlipExist(currentBlip) then
+        RemoveBlip(currentBlip)
+    end
+    currentBlip = nil
+    SetWaypointOff()
+end
+
+-- ============================================================
+-- 6. F1 STARTING LIGHTS  (own thread — doesn't block net events)
+-- ============================================================
+local countdownDone = false
+
+local function F1Countdown()
+    countdownDone = false
+    CreateThread(function()
+        local lights = {
+            {m = "● ○ ○ ○ ○", c = "#7a0000"},
+            {m = "● ● ○ ○ ○", c = "#a00000"},
+            {m = "● ● ● ○ ○", c = "#c80000"},
+            {m = "● ● ● ● ○", c = "#e00000"},
+            {m = "● ● ● ● ●", c = "#ff0000"},
+        }
+        for _, light in ipairs(lights) do
+            lib.showTextUI(light.m, {
+                position = "top-center",
+                style    = {backgroundColor = light.c, color = 'white',
+                            fontSize = '48px', fontWeight = 'bold',
+                            padding = '10px 28px', letterSpacing = '6px'}
+            })
+            PlaySoundFrontend(-1, "CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET", 1)
+            Wait(900)
+        end
+        lib.hideTextUI()
+        Wait(math.random(400, 900)) -- Random lights-out like real F1
+        lib.showTextUI("GO GO GO!", {
+            position = "top-center",
+            style    = {backgroundColor = "#00cc44", color = 'white',
+                        fontSize = '54px', fontWeight = 'bold', padding = '10px 28px'}
+        })
+        PlaySoundFrontend(-1, "CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET", 1)
+        Wait(1200)
+        lib.hideTextUI()
+        countdownDone = true
+    end)
+    while not countdownDone do Wait(100) end
+end
+
+-- ============================================================
+-- 7. SPAWN & CLEANUP
+-- ============================================================
+RegisterNetEvent('frcp_f1:client:spawnYourCar', function(spot)
+    local model = Config.F1CarModel
+    RequestModel(model)
+    while not HasModelLoaded(model) do Wait(0) end
+
+    myRaceCar = CreateVehicle(model, spot.x, spot.y, spot.z, spot.w, true, false)
+    ApplyF1Handling(myRaceCar)
+
+    local plate = GetVehicleNumberPlateText(myRaceCar)
+    TriggerEvent('vehiclekeys:client:SetOwner', plate)
+    SetPedIntoVehicle(cache.ped, myRaceCar, -1)
+
+    FreezeEntityPosition(myRaceCar, true)
+    SetVehicleDoorsLocked(myRaceCar, 4)
+    SetVehicleEngineOn(myRaceCar, false, true, false)
+end)
+
+RegisterNetEvent('frcp_f1:client:cleanupCars', function()
+    ClearWaypoint()
+    isRacing   = false
+    currentLap = 1
+    currentCP  = 1
+    if myRaceCar and DoesEntityExist(myRaceCar) then
+        DeleteEntity(myRaceCar)
+    end
+    myRaceCar = nil
+end)
+
+-- ============================================================
+-- 8. MAIN RACE LOOP
+-- ============================================================
+RegisterNetEvent('frcp_f1:client:startRace', function()
+    if not myRaceCar then return end
+    if isRacing then return end
+
+    currentLap = 1
+    currentCP  = 1
+
+    if not Config.Checkpoints or #Config.Checkpoints == 0 then
+        lib.notify({title = 'Race Error', description = 'No checkpoints in Config!', type = 'error'})
+        return
+    end
+
+    F1Countdown()
+
+    FreezeEntityPosition(myRaceCar, false)
+    SetVehicleEngineOn(myRaceCar, true, false, false)
+    SetVehicleDoorsLocked(myRaceCar, 1)
+    isRacing = true
+
+    -- Point GPS at first checkpoint immediately after lights out
+    UpdateRaceWaypoint(Config.Checkpoints[currentCP])
+
+    CreateThread(function()
+        while isRacing do
+            local ped    = cache.ped
+            local coords = GetEntityCoords(ped)
+
+            -- ── DQ ───────────────────────────────────────────────────
+            if not IsPedInVehicle(ped, myRaceCar, false) then
+                isRacing = false
+                ClearWaypoint()
+                if DoesEntityExist(myRaceCar) then DeleteEntity(myRaceCar) end
+                myRaceCar = nil
+                SetEntityCoords(ped,
+                    Config.DQLocation.x, Config.DQLocation.y, Config.DQLocation.z,
+                    false, false, false, false)
+                TriggerServerEvent('frcp_f1:server:dqPlayer', "Player left vehicle")
+                lib.notify({title = 'DISQUALIFIED', description = 'You left the vehicle!', type = 'error'})
+                break
+            end
+
+            -- ── Nil guard ────────────────────────────────────────────
+            local target = Config.Checkpoints[currentCP]
+            if not target then isRacing = false; break end
+
+            -- ── HUD & racing line ────────────────────────────────────
+            DrawRaceHUD(currentLap, Config.MaxLaps, currentCP, #Config.Checkpoints)
+            DrawRacingLine(coords, target)
+
+            -- ── Checkpoint marker (within 200 m) ─────────────────────
+            if #(coords - target) < 200.0 then
+                local isStartFinish = (currentCP == 1)
+
+                if isStartFinish then
+                    -- Marker 4: checkered-flag cylinder for the Start / Finish line
+                    DrawMarker(
+                        4,
+                        target.x, target.y, target.z,
+                        0.0, 0.0, 0.0,
+                        0.0, 0.0, 0.0,
+                        5.0, 5.0, 5.0,
+                        255, 255, 255, 200,
+                        false, false, 2, nil, nil, false)
+                    -- Red glow ring at ground level to emphasise S/F
+                    DrawMarker(
+                        1,
+                        target.x, target.y, target.z + 0.05,
+                        0.0, 0.0, 0.0,
+                        0.0, 0.0, 0.0,
+                        7.0, 7.0, 0.4,
+                        255, 40, 40, 100,
+                        false, false, 2, nil, nil, false)
+                else
+                    -- Marker 1: flat circle for all regular checkpoints
+                    DrawMarker(
+                        1,
+                        target.x, target.y, target.z + 0.05,
+                        0.0, 0.0, 0.0,
+                        0.0, 0.0, 0.0,
+                        5.0, 5.0, 1.2,
+                        0, 180, 255, 160,
+                        false, false, 2, nil, nil, false)
+                end
+            end
+
+            -- ── Checkpoint trigger ───────────────────────────────────
+            if #(coords - target) < 15.0 then
+                PlaySoundFrontend(-1, "CHECKPOINT_BEAT", "HUD_MINI_GAME_SOUNDSET", 1)
+
+                if currentCP < #Config.Checkpoints then
+                    currentCP = currentCP + 1
+                else
+                    currentCP  = 1
+                    currentLap = currentLap + 1
+
+                    if currentLap > Config.MaxLaps then
+                        isRacing = false
+                        ClearWaypoint()
+                        TriggerServerEvent('frcp_f1:server:finishRace')
+                        lib.notify({title = '🏁 RACE FINISHED', description = 'You crossed the finish line!', type = 'success'})
+                        break
+                    else
+                        lib.notify({
+                            title       = string.format('LAP %d COMPLETE', currentLap - 1),
+                            description = string.format('%d lap(s) remaining', Config.MaxLaps - (currentLap - 1)),
+                            type        = 'inform'
+                        })
+                    end
+                end
+
+                -- GPS hops to the next checkpoint along the road network
+                UpdateRaceWaypoint(Config.Checkpoints[currentCP])
+                TriggerServerEvent('frcp_f1:server:updateProgress', currentLap, currentCP)
+            end
+
+            Wait(0)
+        end
+    end)
 end)
