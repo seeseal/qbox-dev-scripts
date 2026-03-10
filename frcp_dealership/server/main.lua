@@ -8,6 +8,18 @@
 local QBX = exports.qbx_core
 
 -- ============================================
+--  Duty Tracking
+--  Resource-owned table: FDDutyPlayers[serverId] = true/nil
+--  Populated by server/job.lua's setDuty handler.
+--  Shared across all server files in this resource
+--  via FiveM's single-Lua-state-per-resource model.
+--  We own this rather than relying on Qbox's
+--  job.onDuty field, which isn't reliably updated
+--  in all qbx_core builds.
+-- ============================================
+FDDutyPlayers = {}
+
+-- ============================================
 --  Purchase Cooldown (Elite only)
 -- ============================================
 local purchaseCooldowns = {}
@@ -124,7 +136,9 @@ local function findEmployeeAtStand(standIndex)
         if p then
             local job = p.PlayerData.job
             -- Must be flamedrive and on duty
-            if job and job.name == Config.JobName and job.onDuty then
+            -- Must be flamedrive and on duty (checked against our own duty table,
+            -- not job.onDuty, which qbx_core doesn't always update in memory)
+            if job and job.name == Config.JobName and FDDutyPlayers[tonumber(pid)] then
                 local gradeData = Config.JobGrades[job.grade.level]
                 if gradeData then
                     -- GetEntityCoords is client-side only; we use
@@ -664,6 +678,7 @@ AddEventHandler('playerDropped', function()
     if activeSessions[src] then
         activeSessions[src] = nil
     end
+    FDDutyPlayers[src] = nil  -- clear duty state so stale entries don't linger
 end)
 
 -- ============================================

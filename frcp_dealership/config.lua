@@ -12,7 +12,7 @@ Config = {}
 --  !! CHANGE ME !! — where purchased cars appear
 -- ============================================
 
-Config.SpawnPoint = vec4(-947.67, -496.79, 35.64, 296.36)
+Config.SpawnPoint = vec4(-1224.87, -348.67, 35.92, 117.88)
 
 -- ============================================
 --  Tablet Stands
@@ -31,10 +31,10 @@ Config.SpawnPoint = vec4(-947.67, -496.79, 35.64, 296.36)
 -- ============================================
 
 Config.TabletStands = {
-    [1] = { coords = vec4(-951.06, -495.1,  35.84, 224.23), label = "Browse Vehicles — Stand 1" },
-    [2] = { coords = vec4(-953.00, -493.5,  35.84, 200.00), label = "Browse Vehicles — Stand 2" },
-    [3] = { coords = vec4(-955.00, -495.0,  35.84, 180.00), label = "Browse Vehicles — Stand 3" },
-    [4] = { coords = vec4(-953.50, -497.0,  35.84, 160.00), label = "Browse Vehicles — Stand 4" },
+    [1] = { coords = vec3(-1261.43, -356.02, 35.97), label = "Browse Vehicles — Stand 1" },
+    [2] = { coords = vec3(-1265.08, -357.76, 35.99), label = "Browse Vehicles — Stand 2" },
+    [3] = { coords = vec3(-1268.01, -360.77, 36.05), label = "Browse Vehicles — Stand 3" },
+    [4] = { coords = vec3(-1265.6, -371.94, 35.92), label = "Browse Vehicles — Stand 4" },
 }
 
 -- How close (metres) an on-duty employee must be
@@ -99,7 +99,36 @@ Config.JobGrades = {
 
 Config.SocietyPercent  = 80     -- % that goes into the dealership fund
 Config.TaxPercent      = 20     -- % that goes to government as tax
-Config.GovBankAccount  = "gov_taxes"  -- !! CHANGE ME !!
+-- ============================================
+--  BANKING INTEGRATION
+--  BankingResource: the exact resource name of
+--  your banking script (check your server.cfg).
+--  Common values: 'Renewed-Banking', 'qbx_banking'
+--  !! CHANGE ME !! to match your server
+--
+--  OrgBankAccount: the account name registered
+--  in your banking script for this dealership.
+--  This is what appears in the banking UI as
+--  "Organization Account / flamedrive".
+--  !! CHANGE ME !! if your account name differs
+--
+--  GovBankAccount: the account that receives
+--  the tax cut on every sale. The account must
+--  already exist in your banking script.
+--  If you don't have a government account set
+--  up yet, set GovTaxEnabled = false and the
+--  tax cut will be absorbed into the society
+--  fund instead (TaxPercent still tracked in
+--  logs but no separate payment is made).
+--  !! CHANGE ME !! to your government account
+-- ============================================
+
+Config.BankingResource = "Renewed-Banking"  -- !! CHANGE ME !!
+Config.OrgBankAccount  = "flamedrive"       -- !! CHANGE ME !!
+Config.GovTaxEnabled   = false              -- set true once gov_taxes account exists
+Config.GovBankAccount  = "gov_taxes"        -- !! CHANGE ME !!
+
+
 
 -- ============================================
 --  TEST DRIVE
@@ -116,9 +145,9 @@ Config.GovBankAccount  = "gov_taxes"  -- !! CHANGE ME !!
 -- ============================================
 
 Config.TestDriveDuration = 300          -- seconds (300 = 5 minutes)
-Config.TestDriveRadius   = 300.0        -- metres from return point before warning (!! CHANGE ME !!)
-Config.TestDriveStart    = vec4(-976.52, -469.84, 35.28, 56.0)   -- !! CHANGE ME !! road near dealership
-Config.TestDriveReturn   = vec3(-951.06, -495.1,  35.84)          -- !! CHANGE ME !! where player returns
+Config.TestDriveRadius   = 300000000.0        -- metres from return point before warning (!! CHANGE ME !!)
+Config.TestDriveStart    = vec4(-1235.77, -342.24, 35.7, 25.55)   -- !! CHANGE ME !! road near dealership
+Config.TestDriveReturn   = vec4(-1266.06, -342.37, 35.05, 118.11)          -- !! CHANGE ME !! where player returns
 
 -- ============================================
 --  EMPLOYEE LOCATIONS
@@ -127,9 +156,9 @@ Config.TestDriveReturn   = vec3(-951.06, -495.1,  35.84)          -- !! CHANGE M
 --  !! CHANGE ME !! — move these into your MLO
 -- ============================================
 
-Config.OnDutyCoords     = vec3(-948.0, -492.0, 35.84)   -- !! CHANGE ME !! clock-in/out marker
-Config.StashCoords      = vec3(-950.0, -490.0, 35.84)   -- !! CHANGE ME !! shared employee stash
-Config.ChangingRoomCoords = vec3(-952.0, -488.0, 35.84) -- !! CHANGE ME !! changing room marker
+Config.OnDutyCoords     = vec3(-1254.07, -348.99, 35.91)   -- !! CHANGE ME !! clock-in/out marker
+Config.StashCoords      = vec3(-1249.73, -365.14, 35.91)   -- !! CHANGE ME !! shared employee stash
+Config.ChangingRoomCoords = vec3(-1249.77, -349.27, 36.33) -- !! CHANGE ME !! changing room marker
 
 -- Employee outfit when on duty
 -- These component IDs match GTA V ped components
@@ -179,12 +208,12 @@ Config.MaxWithdrawal = 500000   -- !! CHANGE ME !! to whatever suits your econom
 -- ============================================
 
 Config.DisplaySpots = {
-    [1] = { coords = vec4(-944.59, -485.76, 35.43, 30.07),  default = "italirsx"   },
-    [2] = { coords = vec4(-952.0, -493.0, 35.84, 90.0),  default = "pfister811" },
-    [3] = { coords = vec4(-952.0, -495.0, 35.84, 90.0),  default = "toreoxo"    },
-    [4] = { coords = vec4(-955.0, -491.0, 35.84, 270.0), default = "exemplar"   },
-    [5] = { coords = vec4(-955.0, -493.0, 35.84, 270.0), default = "oraclexs"   },
-    [6] = { coords = vec4(-955.0, -495.0, 35.84, 270.0), default = "elegy"      },
+    [1] = { coords = vec4(-1255.92, -366.81, 35.54, 85.68),  default = "italirsx"   },
+    [2] = { coords = vec4(-1263.15, -353.08, 35.77, 208.38),  default = "pfister811" },
+    [3] = { coords = vec4(-1266.73, -354.99, 35.61, 212.87),  default = "toreoxo"    },
+    [4] = { coords = vec4(-1270.14, -357.05, 35.48, 246.1), default = "exemplar"   },
+    [5] = { coords = vec4(-1270.94, -361.11, 35.57, 275.25), default = "oraclexs"   },
+    [6] = { coords = vec4(-1269.36, -364.73, 35.76, 297.42), default = "elegy"      },
 }
 
 -- Minimum grade required to change a display vehicle

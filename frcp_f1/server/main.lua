@@ -120,18 +120,27 @@ local function SendWebhook()
     if dqLines == "" then dqLines = "*None*\n" end
 
     local desc = string.format("**%s**\n\n**🏁 Results**\n%s\n**🚫 Disqualified**\n%s", now, podium, dqLines)
-    local payload = json.encode({
-        username   = Config.WebhookBotName or "Flame City GP",
-        avatar_url = Config.WebhookAvatar or "",
+    -- Only include avatar_url if one is actually configured — Discord rejects empty strings
+    local webhookBody = {
+        username = Config.WebhookBotName or "Flame City GP",
         embeds = {{
             title       = "Flame City Grand Prix — Race Summary",
             description = desc,
             color       = 16766720,
             footer      = { text = "frcp_f1 · FiveM" }
         }}
-    })
-    PerformHttpRequest(Config.DiscordWebhook, function(code)
-        print(code == 204 and "^2[F1]^7 Webhook OK" or "^1[F1]^7 Webhook failed: " .. tostring(code))
+    }
+    if Config.WebhookAvatar and Config.WebhookAvatar ~= "" then
+        webhookBody.avatar_url = Config.WebhookAvatar
+    end
+
+    local payload = json.encode(webhookBody)
+    PerformHttpRequest(Config.DiscordWebhook, function(code, body)
+        if code == 204 then
+            print("^2[F1]^7 Webhook delivered OK")
+        else
+            print(string.format("^1[F1]^7 Webhook failed — HTTP %s | %s", tostring(code), tostring(body)))
+        end
     end, "POST", payload, { ["Content-Type"] = "application/json" })
 end
 
@@ -143,13 +152,12 @@ local function ShowResultsAndTeleport()
     local delay    = Config.ResultsScreenDelay or 18
     local medals   = {"🥇","🥈","🥉"}
 
-    -- Build a readable results string for lib.notify
     local lines = ""
     for _, entry in ipairs(snapshot) do
         if entry.dq then
             lines = lines .. string.format("❌ DQ  %s — %s\n", entry.name, entry.dqReason or "")
         else
-            local medal = medals[entry.pos] or ("P"..entry.pos)
+            local medal = medals[entry.pos] or ("P" .. entry.pos)
             local gap   = ""
             if entry.pos == 1 then
                 gap = " · WINNER"
@@ -162,7 +170,6 @@ local function ShowResultsAndTeleport()
         end
     end
 
-    -- Broadcast results to everyone as a persistent notify
     TriggerClientEvent('ox_lib:notify', -1, {
         title       = '🏁 Race Results — Flame City GP',
         description = lines,
@@ -171,7 +178,7 @@ local function ShowResultsAndTeleport()
         position    = 'top',
     })
 
-    -- After delay: teleport FINISHERS only (DQ'd already teleported instantly)
+    -- After delay: teleport finishers (DQ'd already teleported instantly)
     SetTimeout(delay * 1000, function()
         for id, data in pairs(racers) do
             if data.finished and not data.dq then
@@ -223,8 +230,8 @@ RegisterNetEvent('frcp_f1:server:assignSlot', function(slot, targetId)
             title='Not Found', description='ID '..targetId..' not online', type='error'}); return
     end
     pendingGrid[slot] = targetId
-    -- Update the label in the organiser's menu
-    TriggerClientEvent('frcp_f1:client:slotAssigned', src, slot, name)
+    -- Update the label in the organiser's menu (pass targetId so client can show correct player ID)
+    TriggerClientEvent('frcp_f1:client:slotAssigned', src, slot, targetId, name)
     TriggerClientEvent('ox_lib:notify', src, {
         title='Assigned', description=string.format("P%d → %s (ID %d)", slot, name, targetId), type='success'
     })
@@ -240,8 +247,6 @@ end)
 -- ============================================================
 -- 3. GRID SETUP + FORMATION LAP
 -- ============================================================
--- emptySlots: list of grid spot vector4s with no human assigned (for NPC spawning)
-local emptySlots = {}
 local gridAssignments = {}  -- [slot] = serverId (for returnToGrid TP)
 
 RegisterNetEvent('frcp_f1:server:setupGrid', function()
@@ -249,14 +254,13 @@ RegisterNetEvent('frcp_f1:server:setupGrid', function()
     if not IsOrganiser(src) then return end
 
     TriggerClientEvent('frcp_f1:client:cleanupCars', -1)
-    TriggerClientEvent('frcp_f1:client:cleanupNPCs', src)
     racers = {}; finishOrder = {}; dqList = {}
     raceInProgress = false; raceStartTime = nil
-    emptySlots = {}; gridAssignments = {}
+    gridAssignments = {}
 
     local placed = 0
     for slot = 1, #Config.GridSpots do
-        local tid = pendingGrid[slot]
+        local tid  = pendingGrid[slot]
         local spot = Config.GridSpots[slot]
         if tid then
             local name = GetPlayerName(tid)
@@ -270,26 +274,17 @@ RegisterNetEvent('frcp_f1:server:setupGrid', function()
                 }
                 gridAssignments[slot] = tid
                 placed = placed + 1
-            else
-                table.insert(emptySlots, spot)
             end
-        else
-            table.insert(emptySlots, spot)
         end
-    end
-
-    -- Tell organiser's client to spawn NPC cars in empty slots
-    if #emptySlots > 0 then
-        TriggerClientEvent('frcp_f1:client:spawnNPCs', src, emptySlots)
     end
 
     BroadcastLeaderboard()
     TriggerClientEvent('ox_lib:notify', src, {
-        title = 'Grid Ready',
-        description = string.format('%d human(s), %d NPC(s)', placed, #emptySlots),
-        type = 'success'
+        title       = 'Grid Ready',
+        description = string.format('%d driver(s) on the grid', placed),
+        type        = 'success'
     })
-    print(string.format("^2[F1]^7 Grid set. %d humans + %d NPCs.", placed, #emptySlots))
+    print(string.format("^2[F1]^7 Grid set. %d human driver(s).", placed))
 end)
 
 -- ============================================================
@@ -333,8 +328,7 @@ end)
 -- Fired by the organiser's client when SC arrives back at start spot.
 -- 1. Despawn SC
 -- 2. TP all human cars back to their grid spots
--- 3. Return NPCs to grid (organiser client handles this)
--- 4. Wait 3s → race countdown
+-- 3. Wait 4s → race countdown
 RegisterNetEvent('frcp_f1:server:formationLapDone', function()
     local src = source  -- this is the organiser's client
     print("^2[F1]^7 Formation lap complete. Returning to grid.")
@@ -351,11 +345,6 @@ RegisterNetEvent('frcp_f1:server:formationLapDone', function()
                 TriggerClientEvent('frcp_f1:client:returnToGrid', numId, spot)
             end
         end
-    end
-
-    -- Return NPC cars to grid on organiser client
-    if #emptySlots > 0 then
-        TriggerClientEvent('frcp_f1:client:returnNPCsToGrid', src, emptySlots)
     end
 
     -- Give everyone 4 seconds to get settled on the grid, then start
@@ -399,6 +388,9 @@ end)
 -- 5. RACE CLOCK START
 -- ============================================================
 RegisterNetEvent('frcp_f1:server:raceClockStart', function()
+    local key = tostring(source)
+    if not racers[key] then return end  -- only registered racers can start the clock
+    if not raceInProgress then return end
     if not raceStartTime then
         raceStartTime = os.time()
         print("^2[F1]^7 Clock started: " .. raceStartTime)
@@ -415,76 +407,6 @@ RegisterNetEvent('frcp_f1:server:updateProgress', function(lap, cp)
         racers[key].cp    = cp
         racers[key].score = RacerScore(racers[key])
         BroadcastLeaderboard()
-    end
-end)
-
--- ============================================================
--- 6b. NPC REGISTRATION + PROGRESS (fired by organiser client)
--- ============================================================
-RegisterNetEvent('frcp_f1:server:registerNPCs', function(registrations)
-    -- registrations = { {id="BOT_1", name="BOT_Norris"}, ... }
-    for _, bot in ipairs(registrations) do
-        racers[bot.id] = {
-            name      = bot.name,
-            lap       = 1,
-            cp        = 1,
-            score     = 1,
-            finished  = false,
-            dq        = false,
-            dqReason  = nil,
-            finishTime = nil,
-            finishPos  = nil,
-            isNPC     = true,
-        }
-    end
-    BroadcastLeaderboard()
-    print(string.format("^2[F1]^7 Registered %d NPC racer(s).", #registrations))
-end)
-
-RegisterNetEvent('frcp_f1:server:npcProgress', function(botId, lap, cp)
-    if racers[botId] then
-        racers[botId].lap   = lap
-        racers[botId].cp    = cp
-        racers[botId].score = RacerScore(racers[botId])
-        BroadcastLeaderboard()
-    end
-end)
-
-RegisterNetEvent('frcp_f1:server:npcFinish', function(botId)
-    if not racers[botId] or racers[botId].finished then return end
-
-    local now      = os.time()
-    local position = #finishOrder + 1
-    local timeStr  = GetRaceTime(now)
-
-    racers[botId].finished   = true
-    racers[botId].finishTime = now
-    racers[botId].finishPos  = position
-    table.insert(finishOrder, {
-        id      = botId,
-        name    = racers[botId].name,
-        time    = timeStr,
-        rawTime = now - (raceStartTime or now),
-    })
-
-    TriggerClientEvent('ox_lib:notify', -1, {
-        title       = string.format('P%d Finish', position),
-        description = racers[botId].name .. ' crossed the line — ' .. timeStr,
-        type        = 'inform',
-    })
-
-    BroadcastLeaderboard()
-    print(string.format("^2[F1]^7 NPC P%d: %s — %s", position, racers[botId].name, timeStr))
-
-    -- Check if all racers (human + NPC) are done
-    local allDone = true
-    for _, d in pairs(racers) do
-        if not d.finished and not d.dq then allDone = false; break end
-    end
-    if allDone then
-        raceInProgress = false
-        SendWebhook()
-        ShowResultsAndTeleport()
     end
 end)
 
@@ -510,11 +432,12 @@ RegisterNetEvent('frcp_f1:server:dqPlayer', function(reason)
     TriggerClientEvent('frcp_f1:client:teleportPostRace', src)
 
     -- Check if everyone remaining is done
-    local allDone = true
+    local total, done = 0, 0
     for _, d in pairs(racers) do
-        if not d.finished and not d.dq then allDone = false; break end
+        total = total + 1
+        if d.finished or d.dq then done = done + 1 end
     end
-    if allDone then
+    if total > 0 and done >= total then
         raceInProgress = false
         SendWebhook()
         ShowResultsAndTeleport()
@@ -563,12 +486,13 @@ RegisterNetEvent('frcp_f1:server:finishRace', function()
     print(string.format("^2[F1]^7 P%d: %s — %s", position, name, timeStr))
 
     -- Check if all racers are done
-    local allDone = true
+    local total, done = 0, 0
     for _, d in pairs(racers) do
-        if not d.finished and not d.dq then allDone = false; break end
+        total = total + 1
+        if d.finished or d.dq then done = done + 1 end
     end
 
-    if allDone then
+    if total > 0 and done >= total then
         raceInProgress = false
         SendWebhook()
         ShowResultsAndTeleport()
@@ -610,12 +534,10 @@ RegisterNetEvent('frcp_f1:server:forceEnd', function()
     local scSrc2 = scOrganiser
     if scSrc2 then
         TriggerClientEvent('frcp_f1:client:despawnSafetyCar', scSrc2)
-        TriggerClientEvent('frcp_f1:client:cleanupNPCs', scSrc2)
         scOrganiser = nil
     end
     racers={}; finishOrder={}; dqList={}
     raceInProgress=false; raceStartTime=nil; pendingGrid={}
-    if safetyCar and DoesEntityExist(safetyCar) then DeleteEntity(safetyCar) end
     safetyCar = nil
     TriggerClientEvent('ox_lib:notify', -1, {
         title='Race Reset', description='Organiser ended the race.', type='warning'

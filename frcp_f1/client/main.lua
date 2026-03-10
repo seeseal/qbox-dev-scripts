@@ -33,18 +33,14 @@ local formationDone   = false
 -- pendingGrid display labels, updated when slots are assigned
 local slotLabels = {}
 
-RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
-    -- Build quick player lookup: id -> name
-    local playerMap = {}
-    for _, p in ipairs(playerList) do
-        playerMap[p.id] = p.name
-    end
+local currentPlayerMap = {}  -- persists between slot assignments so re-opens work
 
-    -- Slot rows: show current assignment or "Empty"
+local function OpenOrganizerMenu()
     local totalSlots = #Config.GridSpots
     local slotOptions = {}
     for i = 1, totalSlots do
-        local assigned = slotLabels[i]
+        local slotIndex = i  -- capture by value to fix the loop-closure bug
+        local assigned  = slotLabels[slotIndex]
         local desc, iconColor
         if assigned then
             desc      = '✅  ' .. assigned
@@ -53,24 +49,23 @@ RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
             desc      = 'Tap to assign a driver'
             iconColor = '#888888'
         end
-        local suffix = (i == 1) and ' — Pole' or ''
+        local suffix = (slotIndex == 1) and ' — Pole' or ''
         table.insert(slotOptions, {
-            title       = string.format('P%d%s', i, suffix),
+            title       = string.format('P%d%s', slotIndex, suffix),
             description = desc,
             icon        = 'user',
             iconColor   = iconColor,
-            onSelect    = function() AssignSlot(i, playerMap) end,
+            onSelect    = function() AssignSlot(slotIndex, currentPlayerMap) end,
         })
     end
 
-    -- Merge all options
     local options = {}
 
     -- ── STEP 1 ────────────────────────────────────────────
     table.insert(options, {
-        title    = 'STEP 1  ·  GRID',
-        disabled = true,
-        icon     = 'table-cells',
+        title     = 'STEP 1  ·  GRID',
+        disabled  = true,
+        icon      = 'table-cells',
         iconColor = '#e10600',
     })
     for _, o in ipairs(slotOptions) do table.insert(options, o) end
@@ -81,91 +76,112 @@ RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
         onSelect  = function()
             slotLabels = {}
             TriggerServerEvent('frcp_f1:server:clearGrid')
-            lib.showContext('f1_organiser')
+            OpenOrganizerMenu()
         end,
     })
     table.insert(options, {
-        title     = 'Prepare Grid',
+        title       = 'Prepare Grid',
         description = 'Spawn cars and freeze drivers on their grid spots',
-        icon      = 'flag',
-        iconColor = '#ffcc00',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:setupGrid'); lib.showContext('f1_organiser') end,
+        icon        = 'flag',
+        iconColor   = '#ffcc00',
+        onSelect    = function()
+            TriggerServerEvent('frcp_f1:server:setupGrid')
+            OpenOrganizerMenu()
+        end,
     })
 
     -- ── STEP 2 ────────────────────────────────────────────
     table.insert(options, {
-        title    = 'STEP 2  ·  FORMATION LAP',
-        disabled = true,
-        icon     = 'shield-halved',
+        title     = 'STEP 2  ·  FORMATION LAP',
+        disabled  = true,
+        icon      = 'shield-halved',
         iconColor = '#e10600',
     })
     table.insert(options, {
-        title     = 'Deploy Safety Car',
+        title       = 'Deploy Safety Car',
         description = 'SC leads drivers from grid to start — you control when to go',
-        icon      = 'car',
-        iconColor = '#ffaa00',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:deploySafetyCar'); lib.showContext('f1_organiser') end,
+        icon        = 'car',
+        iconColor   = '#ffaa00',
+        onSelect    = function()
+            TriggerServerEvent('frcp_f1:server:deploySafetyCar')
+            OpenOrganizerMenu()
+        end,
     })
 
     -- ── STEP 3 ────────────────────────────────────────────
     table.insert(options, {
-        title    = 'STEP 3  ·  RACE START',
-        disabled = true,
-        icon     = 'traffic-light',
+        title     = 'STEP 3  ·  RACE START',
+        disabled  = true,
+        icon      = 'traffic-light',
         iconColor = '#e10600',
     })
     table.insert(options, {
-        title     = 'START RACE',
+        title       = 'START RACE',
         description = 'Despawn SC · Freeze grid · Lights out',
-        icon      = 'flag-checkered',
-        iconColor = '#00cc44',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:startGlobalRace'); lib.showContext('f1_organiser') end,
+        icon        = 'flag-checkered',
+        iconColor   = '#00cc44',
+        onSelect    = function()
+            TriggerServerEvent('frcp_f1:server:startGlobalRace')
+            OpenOrganizerMenu()
+        end,
     })
 
     -- ── TOOLS ─────────────────────────────────────────────
     table.insert(options, {
-        title    = 'TOOLS',
-        disabled = true,
-        icon     = 'wrench',
+        title     = 'TOOLS',
+        disabled  = true,
+        icon      = 'wrench',
         iconColor = '#888888',
     })
     table.insert(options, {
-        title     = 'Race Director Camera',
+        title       = 'Race Director Camera',
         description = 'Cinematic overhead view of any driver',
-        icon      = 'video',
-        iconColor = '#88aaff',
-        onSelect  = function() OpenDirectorCamMenu() end,
+        icon        = 'video',
+        iconColor   = '#88aaff',
+        onSelect    = function() OpenDirectorCamMenu() end,
     })
     table.insert(options, {
-        title     = 'Force End / Reset',
+        title       = 'Force End / Reset',
         description = 'Emergency stop — teleports everyone and resets all state',
-        icon      = 'circle-xmark',
-        iconColor = '#ff4444',
-        onSelect  = function() TriggerServerEvent('frcp_f1:server:forceEnd'); lib.showContext('f1_organiser') end,
+        icon        = 'circle-xmark',
+        iconColor   = '#ff4444',
+        onSelect    = function()
+            TriggerServerEvent('frcp_f1:server:forceEnd')
+            OpenOrganizerMenu()
+        end,
     })
 
     lib.registerContext({ id = 'f1_organiser', title = '  FLAME CITY GP  ·  Race Control', options = options })
     lib.showContext('f1_organiser')
+end
+
+RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
+    currentPlayerMap = {}
+    for _, p in ipairs(playerList) do
+        currentPlayerMap[p.id] = p.name
+    end
+    OpenOrganizerMenu()
 end)
 
--- Update slot label locally after successful assign
-RegisterNetEvent('frcp_f1:client:slotAssigned', function(slot, name)
-    slotLabels[slot] = string.format('ID %s — %s', slot, name)
+-- Update slot label locally after successful assign, then refresh the menu
+RegisterNetEvent('frcp_f1:client:slotAssigned', function(slot, playerId, name)
+    slotLabels[slot] = string.format('ID %d — %s', playerId, name)
+    OpenOrganizerMenu()
 end)
 
 function AssignSlot(slot, playerMap)
     local result = lib.inputDialog('Assign P' .. slot, {
         { type = 'number', label = 'Player Server ID', placeholder = 'e.g. 5', required = true, min = 1 }
     })
-    if not result or not result[1] then lib.showContext('f1_organiser'); return end
+    if not result or not result[1] then OpenOrganizerMenu(); return end
     local targetId = tonumber(result[1])
     if not targetId then
         lib.notify({ title = 'Invalid ID', type = 'error' })
-        lib.showContext('f1_organiser')
+        OpenOrganizerMenu()
         return
     end
     TriggerServerEvent('frcp_f1:server:assignSlot', slot, targetId)
-    lib.showContext('f1_organiser')
+    -- Menu will re-open via slotAssigned event once server confirms
 end
 
 -- ============================================================
@@ -273,14 +289,36 @@ local function UpdateDRS(coords)
     local newZone = 0
 
     for i, zone in ipairs(Config.DRSZones) do
-        local distEntry = #(coords - zone.entry)
-        local distExit  = #(coords - zone.exit)
-        -- Open if within entry radius and haven't reached the exit yet
-        -- (exit radius check prevents staying open after passing the zone)
-        if distEntry < zone.radius and distExit > zone.radius then
-            newOpen = true
-            newZone = i
-            break
+        -- Project the player's position onto the entry→exit segment.
+        -- t=0 means at entry, t=1 means at exit.
+        -- DRS is open when the player is between entry and exit (0 <= t <= 1)
+        -- and within the lateral corridor (radius) of that segment.
+        local ex = zone.exit.x  - zone.entry.x
+        local ey = zone.exit.y  - zone.entry.y
+        local ez = zone.exit.z  - zone.entry.z
+        local lenSq = ex*ex + ey*ey + ez*ez
+
+        local t = 0.0
+        if lenSq > 0.0 then
+            local dx = coords.x - zone.entry.x
+            local dy = coords.y - zone.entry.y
+            local dz = coords.z - zone.entry.z
+            t = (dx*ex + dy*ey + dz*ez) / lenSq
+        end
+
+        if t >= 0.0 and t <= 1.0 then
+            -- Closest point on the segment
+            local cx = zone.entry.x + t * ex
+            local cy = zone.entry.y + t * ey
+            local cz = zone.entry.z + t * ez
+            local lateral = math.sqrt(
+                (coords.x - cx)^2 + (coords.y - cy)^2 + (coords.z - cz)^2
+            )
+            if lateral < zone.radius then
+                newOpen = true
+                newZone = i
+                break
+            end
         end
     end
 
@@ -521,136 +559,11 @@ end
 
 -- ============================================================
 -- 11. FORMATION LAP
---     The organiser's client spawns the safety car and drives it
---     via task AI around the circuit. All other clients see it
---     because it's a networked entity. Racers follow at capped speed.
--- ============================================================
--- 11. FORMATION LAP + NPC FILLERS
 -- ============================================================
 
 local safetyCar       = nil   -- SC entity (organiser client only)
 local safetyCarBlip   = nil
 local safetyCarActive = false
-local npcVehicles     = {}    -- { {veh=entity, ped=entity}, ... } (organiser client)
-
--- ── NPC GRID FILLERS ─────────────────────────────────────────────────────
--- Server sends which slots are empty; organiser spawns NPC cars there.
--- Bot drivers: scrambled names + team livery colors
--- Primary = body, Secondary = trim  (GTA colour index 0-159)
--- RGB colours — much more vivid than GTA palette index
--- pr = primary RGB, sc = secondary RGB
-local BOT_DRIVERS = {
-    -- Verstappin  → Red Bull: midnight blue body, vivid yellow nose
-    { name="Verstappin", pr={0,6,61},      sc={255,214,0}   },
-    -- Hamiltun    → Mercedes: black body, teal trim
-    { name="Hamiltun",   pr={15,15,15},    sc={0,210,190}   },
-    -- Leclairc    → Ferrari: Scuderia red body, yellow shield
-    { name="Leclairc",   pr={220,0,0},     sc={255,186,0}   },
-    -- Norriss     → McLaren: papaya orange body, black trim
-    { name="Norriss",    pr={255,128,0},   sc={10,10,10}    },
-    -- Saainz      → Williams: royal blue body, white stripe
-    { name="Saainz",     pr={0,60,255},    sc={255,255,255} },
-    -- Russull     → Mercedes 2: silver body, teal trim
-    { name="Russull",    pr={180,180,180}, sc={0,210,190}   },
-    -- Alonzo      → Alpine: French blue body, hot pink accent
-    { name="Alonzo",     pr={0,100,255},   sc={255,0,120}   },
-    -- Piastrii    → McLaren 2: papaya orange, gold accent
-    { name="Piastrii",   pr={255,128,0},   sc={200,150,0}   },
-    -- Cheeco      → RB Honda: dark navy, white stripe
-    { name="Cheeco",     pr={14,14,80},    sc={240,240,240} },
-    -- Hulkenburg  → Haas: white body, red stripe
-    { name="Hulkenburg", pr={235,235,235}, sc={180,0,0}     },
-}
-local function RandomBotDriver(usedNames)
-    local pool = {}
-    for _, d in ipairs(BOT_DRIVERS) do
-        if not usedNames[d.name] then table.insert(pool, d) end
-    end
-    if #pool == 0 then
-        return { name="Driver"..math.random(100,999), pr={200,200,200}, sc={180,0,0} }
-    end
-    return pool[math.random(1, #pool)]
-end
-
-RegisterNetEvent('frcp_f1:client:spawnNPCs', function(emptySlots)
-    local model = Config.F1CarModel
-    RequestModel(model)
-    while not HasModelLoaded(model) do Wait(0) end
-
-    local pedModel = `a_m_m_skater_01`
-    RequestModel(pedModel)
-    while not HasModelLoaded(pedModel) do Wait(0) end
-
-    npcVehicles = {}
-    local usedNames = {}
-    local registrations = {}  -- send to server: { {id="BOT_1", name="BOT_Norris"}, ... }
-
-    for i, spot in ipairs(emptySlots) do
-        local driver  = RandomBotDriver(usedNames)
-        usedNames[driver.name] = true
-        local botName = "BOT_" .. driver.name
-        local botId   = "BOT_" .. i  -- stable key used server-side
-
-        local veh = CreateVehicle(model, spot.x, spot.y, spot.z, spot.w, true, false)
-        SetEntityAsMissionEntity(veh, true, true)
-        ApplyF1Handling(veh)
-        SetVehicleEngineOn(veh, false, true, false)
-        FreezeEntityPosition(veh, true)
-        SetVehicleModKit(veh, 0)
-        -- Apply vivid RGB team livery — bypasses the GTA palette
-        SetVehicleCustomPrimaryColour(veh,   driver.pr[1], driver.pr[2], driver.pr[3])
-        SetVehicleCustomSecondaryColour(veh, driver.sc[1], driver.sc[2], driver.sc[3])
-
-        local ped = CreatePedInsideVehicle(veh, 26, pedModel, -1, true, false)
-        SetEntityAsMissionEntity(ped, true, true)
-        SetBlockingOfNonTemporaryEvents(ped, true)
-        SetPedKeepTask(ped, true)
-        SetPedCanBeKnockedOffVehicle(ped, 1)
-
-        table.insert(npcVehicles, { veh = veh, ped = ped, name = botName, id = botId })
-        table.insert(registrations, { id = botId, name = botName })
-    end
-
-    -- Register all bots in the server's racers table
-    TriggerServerEvent('frcp_f1:server:registerNPCs', registrations)
-
-    lib.notify({ title = string.format('👤 %d NPC driver(s) added', #emptySlots), type = 'inform' })
-end)
-
--- Called when formation lap ends — stop NPCs, TP back to grid, refreeze
-RegisterNetEvent('frcp_f1:client:returnNPCsToGrid', function(emptySlots)
-    formationActive = false  -- stops any running NPC drive threads
-    for i, npc in ipairs(npcVehicles) do
-        if DoesEntityExist(npc.veh) then
-            local spot = emptySlots[i]
-            if spot then
-                -- Stop driving
-                if DoesEntityExist(npc.ped) then ClearPedTasks(npc.ped) end
-                SetVehicleMaxSpeed(npc.veh, 0.0)
-                -- TP back to grid spot
-                SetEntityCoords(npc.veh, spot.x, spot.y, spot.z, false, false, false, false)
-                SetEntityHeading(npc.veh, spot.w)
-                FreezeEntityPosition(npc.veh, true)
-                SetVehicleEngineOn(npc.veh, false, true, false)
-            end
-        end
-    end
-end)
-
--- Despawn all NPC vehicles (called on forceEnd / cleanup)
-RegisterNetEvent('frcp_f1:client:cleanupNPCs', function()
-    for _, npc in ipairs(npcVehicles) do
-        if DoesEntityExist(npc.ped) then
-            ClearPedTasks(npc.ped)
-            DeleteEntity(npc.ped)
-        end
-        if DoesEntityExist(npc.veh) then
-            SetVehicleEngineOn(npc.veh, false, true, false)
-            DeleteEntity(npc.veh)
-        end
-    end
-    npcVehicles = {}
-end)
 
 -- ── SAFETY CAR ───────────────────────────────────────────────────────────
 -- Route: safetyCarSpot → CP1 → CP2 → ... → CPn → back to safetyCarSpot
@@ -754,47 +667,6 @@ RegisterNetEvent('frcp_f1:client:beginFormationLap', function()
         SetVehicleMaxSpeed(myRaceCar, maxMs)
     end
 
-    -- Drive NPCs through the circuit (same route as SC: all CPs then back to start)
-    if #npcVehicles > 0 then
-        local route = {}
-        for _, cp in ipairs(Config.Checkpoints) do
-            table.insert(route, vector3(cp.x, cp.y, cp.z))
-        end
-        local startSpot = Config.FormationLap.safetyCarSpot
-        table.insert(route, vector3(startSpot.x, startSpot.y, startSpot.z))
-
-        for _, npc in ipairs(npcVehicles) do
-            if DoesEntityExist(npc.veh) and DoesEntityExist(npc.ped) then
-                FreezeEntityPosition(npc.veh, false)
-                SetVehicleEngineOn(npc.veh, true, false, false)
-                SetVehicleMaxSpeed(npc.veh, maxMs * 0.92) -- slightly slower so SC leads
-
-                local ped = npc.ped
-                local veh = npc.veh
-                CreateThread(function()
-                    for _, dest in ipairs(route) do
-                        if not formationActive then break end
-                        TaskVehicleDriveToCoord(ped, veh,
-                            dest.x, dest.y, dest.z,
-                            maxMs * 0.92,
-                            0,
-                            786603,  -- formation: stay on road, follow SC
-                            5.0,
-                            25.0)    -- large radius so they don't brake to stop
-                        while formationActive do
-                            if not DoesEntityExist(veh) then break end
-                            local pos = GetEntityCoords(veh)
-                            if #(pos - dest) < 22.0 then break end
-                            Wait(300)
-                        end
-                    end
-                    -- Clear task when done
-                    if DoesEntityExist(ped) then ClearPedTasks(ped) end
-                end)
-            end
-        end
-    end
-
     if myRaceCar then
         lib.showTextUI("🟡  FORMATION LAP — Follow the safety car", {
             position = "top-center",
@@ -840,39 +712,32 @@ RegisterNetEvent('frcp_f1:client:endFormationLap', function()
 end)
 
 -- ============================================================
--- 12. RESULTS  (lib.notify — NUI removed, was unreliable)
+-- 12. RESULTS
 -- ============================================================
--- Results are shown via lib.notify broadcast from server.
--- Stub handlers kept so old server events don't throw errors.
-RegisterNetEvent('frcp_f1:client:showResults', function() end)
-RegisterNetEvent('frcp_f1:client:hideResults', function() end)
+-- Results are broadcast via ox_lib:notify from the server.
+-- No client-side handling needed.
 
 -- ============================================================
 -- 13. SPAWN & CLEANUP
 -- ============================================================
--- Random vivid livery colours for the player's car each race
-local function RandomPlayerLivery(veh)
-    -- Generate two visually distinct vivid random colours
-    local hue1 = math.random(0, 359)
-    local hue2 = (hue1 + 150 + math.random(0, 60)) % 360  -- complementary-ish offset
-    local function HsvToRgb(h, s, v)
-        local i = math.floor(h / 60) % 6
-        local f = h / 60 - math.floor(h / 60)
-        local p = math.floor(v * (1 - s) * 255)
-        local q = math.floor(v * (1 - f * s) * 255)
-        local t = math.floor(v * (1 - (1 - f) * s) * 255)
-        v = math.floor(v * 255)
-        if i == 0 then return v, t, p
-        elseif i == 1 then return q, v, p
-        elseif i == 2 then return p, v, t
-        elseif i == 3 then return p, q, v
-        elseif i == 4 then return t, p, v
-        else return v, p, q end
+-- Livery assignment: 11 liveries (1–11). Livery 1 is reserved — never randomised.
+-- Each driver gets a unique livery from 2–11 per race session.
+local usedLiveries = {}
+
+local function AssignLivery(veh)
+    local pool = {}
+    for i = 2, 11 do
+        if not usedLiveries[i] then table.insert(pool, i) end
     end
-    local r1,g1,b1 = HsvToRgb(hue1, 0.9, 0.95)
-    local r2,g2,b2 = HsvToRgb(hue2, 0.8, 0.85)
-    SetVehicleCustomPrimaryColour(veh, r1, g1, b1)
-    SetVehicleCustomSecondaryColour(veh, r2, g2, b2)
+    local chosen
+    if #pool > 0 then
+        chosen = pool[math.random(1, #pool)]
+        usedLiveries[chosen] = true
+    else
+        -- Fallback if somehow all 10 slots are taken (>10 drivers)
+        chosen = math.random(2, 11)
+    end
+    SetVehicleLivery(veh, chosen)
 end
 
 -- Max performance mods for openwheel1
@@ -893,6 +758,12 @@ local function ApplyMaxMods(veh)
 end
 
 RegisterNetEvent('frcp_f1:client:spawnYourCar', function(spot)
+    local ped = cache and cache.ped or PlayerPedId()
+    if not ped or ped == 0 then
+        lib.notify({ title = 'Spawn Error', description = 'Ped not ready — try again in a moment', type = 'error' })
+        return
+    end
+
     local model = Config.F1CarModel
     RequestModel(model)
     while not HasModelLoaded(model) do Wait(0) end
@@ -900,11 +771,11 @@ RegisterNetEvent('frcp_f1:client:spawnYourCar', function(spot)
     myRaceCar = CreateVehicle(model, spot.x, spot.y, spot.z, spot.w, true, false)
     ApplyF1Handling(myRaceCar)
     ApplyMaxMods(myRaceCar)
-    RandomPlayerLivery(myRaceCar)
+    AssignLivery(myRaceCar)
 
     local plate = GetVehicleNumberPlateText(myRaceCar)
     TriggerEvent('vehiclekeys:client:SetOwner', plate)
-    SetPedIntoVehicle(cache.ped, myRaceCar, -1)
+    SetPedIntoVehicle(ped, myRaceCar, -1)
     FreezeEntityPosition(myRaceCar, true)
     SetVehicleDoorsLocked(myRaceCar, 4)
     SetVehicleEngineOn(myRaceCar, false, true, false)
@@ -934,6 +805,7 @@ RegisterNetEvent('frcp_f1:client:cleanupCars', function()
     myGapToLeader   = nil
     drsOpen         = false
     engineStatus    = "OK"
+    usedLiveries    = {}
     if myRaceCar and DoesEntityExist(myRaceCar) then DeleteEntity(myRaceCar) end
     myRaceCar = nil
 end)
@@ -947,9 +819,12 @@ RegisterNetEvent('frcp_f1:client:teleportPostRace', function()
     lib.hideTextUI()
     if myRaceCar and DoesEntityExist(myRaceCar) then DeleteEntity(myRaceCar) end
     myRaceCar = nil
-    SetEntityCoords(cache.ped,
-        Config.PostRaceLocation.x, Config.PostRaceLocation.y, Config.PostRaceLocation.z,
-        false, false, false, false)
+    local ped = cache and cache.ped or PlayerPedId()
+    if ped and ped ~= 0 then
+        SetEntityCoords(ped,
+            Config.PostRaceLocation.x, Config.PostRaceLocation.y, Config.PostRaceLocation.z,
+            false, false, false, false)
+    end
 end)
 
 -- ============================================================
@@ -988,88 +863,10 @@ RegisterNetEvent('frcp_f1:client:startRace', function()
     TriggerServerEvent('frcp_f1:server:raceClockStart')
     UpdateRaceWaypoint(Config.Checkpoints[currentCP])
 
-    -- ── NPC RACE LOOP ────────────────────────────────────────
-    -- Each NPC gets its own thread driving the full race distance.
-    -- Speed varies slightly per NPC so they spread out naturally.
-    -- They park back at their grid spot after finishing.
-    -- Driving style 1074528293:
-    --   Full throttle, ignores traffic/peds, no braking to stop at destination.
-    --   GTA uses this internally for its own race AI.
-    local RACE_DRIVE_STYLE = 1074528293
-
-    for npcIdx, npc in ipairs(npcVehicles) do
-        if DoesEntityExist(npc.veh) and DoesEntityExist(npc.ped) then
-            FreezeEntityPosition(npc.veh, false)
-            SetVehicleEngineOn(npc.veh, true, false, false)
-            SetVehicleMaxSpeed(npc.veh, 0.0)
-
-            -- Boost drive force to compensate for GTA AI's ~70% throttle efficiency
-            -- so bots hit similar speeds to a human flooring it
-            SetVehicleHandlingFloat(npc.veh, 'CHandlingData', 'fInitialDriveForce', BASE_DRIVE_FORCE * 1.35)
-
-            local ped = npc.ped
-            local veh = npc.veh
-            -- Slight pace variance per bot so the field spreads naturally
-            local paceVariance = 0.97 + (math.random() * 0.08)  -- 0.97–1.05
-            local npcTopSpeed  = (BASE_TOP_SPEED * paceVariance) / 3.6
-
-            local botId = npc.id
-            CreateThread(function()
-                local botLap = 1
-                local botCP  = 1
-
-                for lap = 1, Config.MaxLaps do
-                    botLap = lap
-                    for cpIdx, cp in ipairs(Config.Checkpoints) do
-                        botCP = cpIdx
-                        if not DoesEntityExist(veh) then return end
-
-                        -- TaskVehicleDriveToCoord (not Longrange):
-                        --   No nav-mesh → no braking to a stop.
-                        --   Large arrival radius (35m) → bot clips the checkpoint
-                        --   zone at speed and immediately gets the next task.
-                        TaskVehicleDriveToCoord(ped, veh,
-                            cp.x, cp.y, cp.z,
-                            npcTopSpeed,
-                            0,               -- 0 = no stopping distance override
-                            RACE_DRIVE_STYLE,
-                            10.0,            -- steering multiplier (higher = sharper)
-                            35.0)            -- arrival radius — large so no decel
-
-                        -- Poll arrival at a tighter radius than the task's own
-                        -- so we chain tasks with no gap
-                        while true do
-                            if not DoesEntityExist(veh) then return end
-                            local pos = GetEntityCoords(veh)
-                            if #(pos - vector3(cp.x, cp.y, cp.z)) < 30.0 then break end
-                            Wait(200)
-                        end
-
-                        TriggerServerEvent('frcp_f1:server:npcProgress', botId, botLap, botCP)
-                    end
-                end
-
-                TriggerServerEvent('frcp_f1:server:npcFinish', botId)
-
-                -- Cool-down drive to pit area
-                if DoesEntityExist(veh) then
-                    local dest = Config.PostRaceLocation
-                    TaskVehicleDriveToCoord(ped, veh,
-                        dest.x, dest.y, dest.z,
-                        npcTopSpeed * 0.4,
-                        0, 786603, 5.0, 8.0)
-                    Wait(10000)
-                    if DoesEntityExist(ped) then ClearPedTasks(ped) end
-                    if DoesEntityExist(veh) then FreezeEntityPosition(veh, true) end
-                end
-            end)
-        end
-    end
-    -- ── END NPC RACE LOOP ────────────────────────────────────
 
     CreateThread(function()
         while isRacing do
-            local ped    = cache.ped
+            local ped    = cache and cache.ped or PlayerPedId()
             local coords = GetEntityCoords(ped)
 
             -- ── DQ: left vehicle ────────────────────────────────────

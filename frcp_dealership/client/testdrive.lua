@@ -22,6 +22,7 @@
 local testDriveActive  = false
 local testDriveVehicle = nil
 local testDriveTimer   = 0
+local testDriveReturnBlip = nil  -- module-level so concludeTestDrive can always clean it up
 
 -- ============================================
 --  Begin Test Drive (called from server)
@@ -73,18 +74,18 @@ RegisterNetEvent('frcp_dealership:client:beginTestDrive', function(model, durati
     })
 
     -- ── Minimap blip marking the return point ──────────────────────────────
-    local returnBlip = AddBlipForCoord(
+    testDriveReturnBlip = AddBlipForCoord(
         Config.TestDriveReturn.x,
         Config.TestDriveReturn.y,
         Config.TestDriveReturn.z
     )
-    SetBlipSprite(returnBlip, 526)          -- car dealership icon
-    SetBlipColour(returnBlip, 5)            -- yellow
-    SetBlipScale(returnBlip, 0.8)
-    SetBlipAsShortRange(returnBlip, false)
+    SetBlipSprite(testDriveReturnBlip, 526)          -- car dealership icon
+    SetBlipColour(testDriveReturnBlip, 5)            -- yellow
+    SetBlipScale(testDriveReturnBlip, 0.8)
+    SetBlipAsShortRange(testDriveReturnBlip, false)
     BeginTextCommandSetBlipName("STRING")
     AddTextComponentString("Return Vehicle Here")
-    EndTextCommandSetBlipName(returnBlip)
+    EndTextCommandSetBlipName(testDriveReturnBlip)
 
     -- ── Countdown + boundary check loop ─────────────────────────────────────
     CreateThread(function()
@@ -114,7 +115,7 @@ RegisterNetEvent('frcp_dealership:client:beginTestDrive', function(model, durati
                 local newPos  = GetEntityCoords(PlayerPedId())
                 local newDist = #(newPos - vec3(origin.x, origin.y, origin.z))
                 if newDist > Config.TestDriveRadius then
-                    RemoveBlip(returnBlip)
+                    RemoveBlip(testDriveReturnBlip)
                     TriggerServerEvent('frcp_dealership:server:endTestDrive', 'out_of_bounds')
                     return
                 else
@@ -140,7 +141,7 @@ RegisterNetEvent('frcp_dealership:client:beginTestDrive', function(model, durati
 
         -- Timer ran out
         if testDriveActive then
-            RemoveBlip(returnBlip)
+            RemoveBlip(testDriveReturnBlip)
             lib.notify({
                 type        = 'error',
                 title       = 'Test Drive',
@@ -215,7 +216,7 @@ RegisterNetEvent('frcp_dealership:client:beginTestDrive', function(model, durati
 
                     if graceTimer == 0 then
                         -- Grace expired, they didn't get back in
-                        RemoveBlip(returnBlip)
+                        RemoveBlip(testDriveReturnBlip)
                         TriggerServerEvent('frcp_dealership:server:endTestDrive', 'exited_vehicle')
                         return
                     end
@@ -233,8 +234,14 @@ RegisterNetEvent('frcp_dealership:client:concludeTestDrive', function(reason)
     if not testDriveActive then return end
 
     testDriveActive = false
-    -- Note: returnBlip is local to beginTestDrive thread so it auto-cleans
-    -- when that thread exits. RemoveBlip is also called in the timer loop above.
+
+    -- Clean up the return-point blip. Previously it was a local var inside
+    -- beginTestDrive so concludeTestDrive couldn't reach it — paths like
+    -- staff_ended and exited_vehicle leaked the blip until resource restart.
+    if testDriveReturnBlip then
+        RemoveBlip(testDriveReturnBlip)
+        testDriveReturnBlip = nil
+    end
 
     -- Delete the car
     if testDriveVehicle and DoesEntityExist(testDriveVehicle) then

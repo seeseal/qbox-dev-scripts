@@ -21,31 +21,26 @@
 -- ============================================
 
 -- ============================================
---  Society Fund Balance (cached in memory)
+--  Banking helpers
+--  Thin wrappers around Renewed-Banking exports
+--  (or equivalent). Change Config.BankingResource
+--  if your server uses a different script.
 -- ============================================
 
-local societyBalance = 0
-
-local function loadBalance()
-    MySQL.query('SELECT balance FROM frcp_dealership_society WHERE id = 1', {}, function(result)
-        if result and result[1] then
-            societyBalance = result[1].balance
-        else
-            societyBalance = 0
-        end
-        print("^2[frcp_dealership] Society fund loaded: $" .. societyBalance .. "^0")
-    end)
+local function bankDeposit(account, amount, reason)
+    if amount <= 0 then return true end
+    local ok = exports[Config.BankingResource]:addAccountMoney(account, amount, reason)
+    return ok
 end
 
-local function saveBalance(amount, cb)
-    societyBalance = amount
-    MySQL.update(
-        'INSERT INTO frcp_dealership_society (id, balance) VALUES (1, ?) ON DUPLICATE KEY UPDATE balance = ?',
-        { amount, amount },
-        function(rows)
-            if cb then cb(rows and rows > 0) end
-        end
-    )
+local function bankWithdraw(account, amount, reason)
+    if amount <= 0 then return false end
+    local ok = exports[Config.BankingResource]:removeAccountMoney(account, amount, reason)
+    return ok
+end
+
+local function bankGetBalance(account)
+    return exports[Config.BankingResource]:getAccountMoney(account) or 0
 end
 
 -- ============================================
@@ -65,18 +60,51 @@ AddEventHandler('frcp_dealership:server:depositSale', function(src, citizenid, v
     if not vehicle.price or vehicle.price <= 0 then return end
 
     commissionAmt    = commissionAmt or 0
-    local netRevenue = vehicle.price - commissionAmt  -- what's left after commission
+    local netRevenue = vehicle.price - commissionAmt
 
     if netRevenue <= 0 then return end
 
     local societyAmt = math.floor(netRevenue * (Config.SocietyPercent / 100))
     local taxAmt     = netRevenue - societyAmt
 
-    -- Add society cut to fund
-    local newBalance = societyBalance + societyAmt
-    saveBalance(newBalance)
+    -- ── Deposit society cut into the org bank account ───────────────────────
+    local depOk = bankDeposit(
+        Config.OrgBankAccount,
+        societyAmt,
+        'Sale: ' .. vehicle.label
+    )
 
-    -- Log the deposit
+    if not depOk then
+        print("^1[frcp_dealership] WARNING: bankDeposit failed for society cut on " ..
+              vehicle.label .. " ($" .. societyAmt .. "). Check Config.BankingResource.^0")
+    end
+    -- ────────────────────────────────────────────────────────────────────────
+
+    -- ── Pay gov tax ─────────────────────────────────────────────────────────
+    if taxAmt > 0 then
+        if Config.GovTaxEnabled then
+            local taxOk = bankDeposit(
+                Config.GovBankAccount,
+                taxAmt,
+                'Tax: ' .. vehicle.label
+            )
+            if not taxOk then
+                -- Account likely doesn't exist yet — absorb into society fund
+                -- and warn clearly so it's easy to spot in console.
+                bankDeposit(Config.OrgBankAccount, taxAmt, 'Tax fallback: ' .. vehicle.label)
+                print("^1[frcp_dealership] WARNING: gov tax deposit to '" .. Config.GovBankAccount ..
+                      "' failed ($" .. taxAmt .. "). Does the account exist in " ..
+                      Config.BankingResource .. "? Tax absorbed into society fund as fallback. " ..
+                      "Set Config.GovTaxEnabled = false to silence this warning.^0")
+            end
+        else
+            -- GovTaxEnabled = false: fold the tax slice into the org account
+            bankDeposit(Config.OrgBankAccount, taxAmt, 'Tax (gov disabled): ' .. vehicle.label)
+        end
+    end
+    -- ────────────────────────────────────────────────────────────────────────
+
+    -- Log the deposit to the transaction table for GM reporting
     MySQL.insert(
         'INSERT INTO frcp_dealership_transactions (type, amount, citizenid, note, created_at) VALUES (?, ?, ?, ?, ?)',
         { 'deposit', societyAmt, citizenid,
@@ -85,8 +113,9 @@ AddEventHandler('frcp_dealership:server:depositSale', function(src, citizenid, v
     )
 
     print("^2[frcp_dealership] Sale deposit: +$" .. societyAmt ..
-          " | Commission deducted: $" .. commissionAmt ..
-          " | Fund total: $" .. newBalance .. "^0")
+          " → " .. Config.OrgBankAccount ..
+          " | Tax: $" .. taxAmt .. " → " .. Config.GovBankAccount ..
+          " | Commission deducted: $" .. commissionAmt .. "^0")
 end)
 
 -- ============================================
@@ -110,7 +139,9 @@ RegisterNetEvent('frcp_dealership:server:getSocietyBalance', function()
         return
     end
 
-    TriggerClientEvent('frcp_dealership:client:receiveSocietyBalance', src, societyBalance)
+    -- Read live balance directly from the banking script
+    local balance = bankGetBalance(Config.OrgBankAccount)
+    TriggerClientEvent('frcp_dealership:client:receiveSocietyBalance', src, balance)
 end)
 
 -- ============================================
@@ -132,7 +163,6 @@ RegisterNetEvent('frcp_dealership:server:withdrawSociety', function(amount)
         return
     end
 
-    -- Validate amount
     amount = tonumber(amount)
     if not amount or amount <= 0 then
         TriggerClientEvent('ox_lib:notify', src, { type = 'error', description = 'Invalid amount.' })
@@ -147,51 +177,52 @@ RegisterNetEvent('frcp_dealership:server:withdrawSociety', function(amount)
         return
     end
 
-    if amount > societyBalance then
+    -- Check live balance from banking script
+    local currentBalance = bankGetBalance(Config.OrgBankAccount)
+    if amount > currentBalance then
         TriggerClientEvent('ox_lib:notify', src, {
             type        = 'error',
-            description = 'Insufficient funds. Current balance: $' .. tostring(societyBalance)
+            description = 'Insufficient funds. Current balance: $' .. tostring(currentBalance)
         })
         return
     end
 
-    -- Deduct and pay player
-    local newBalance = societyBalance - amount
-    saveBalance(newBalance, function(ok)
-        if not ok then
-            TriggerClientEvent('ox_lib:notify', src, { type = 'error', description = 'Database error. Try again.' })
-            return
-        end
+    -- Withdraw from org account
+    local ok = bankWithdraw(Config.OrgBankAccount, amount, 'GM withdrawal')
+    if not ok then
+        TriggerClientEvent('ox_lib:notify', src, { type = 'error', description = 'Banking error. Try again.' })
+        return
+    end
 
-        player.Functions.AddMoney('bank', amount, 'flamedrive-society-withdrawal')
+    -- Pay the GM
+    player.Functions.AddMoney('bank', amount, 'flamedrive-society-withdrawal')
 
-        local citizenid = player.PlayerData.citizenid
-        local name      = player.PlayerData.charinfo.firstname .. " " .. player.PlayerData.charinfo.lastname
+    local newBalance    = bankGetBalance(Config.OrgBankAccount)
+    local citizenid     = player.PlayerData.citizenid
+    local name          = player.PlayerData.charinfo.firstname .. " " .. player.PlayerData.charinfo.lastname
 
-        -- Log transaction
-        MySQL.insert(
-            'INSERT INTO frcp_dealership_transactions (type, amount, citizenid, note, created_at) VALUES (?, ?, ?, ?, ?)',
-            { 'withdrawal', amount, citizenid, 'Boss withdrawal by ' .. name, os.time() }
-        )
+    -- Log transaction
+    MySQL.insert(
+        'INSERT INTO frcp_dealership_transactions (type, amount, citizenid, note, created_at) VALUES (?, ?, ?, ?, ?)',
+        { 'withdrawal', amount, citizenid, 'Boss withdrawal by ' .. name, os.time() }
+    )
 
-        TriggerClientEvent('ox_lib:notify', src, {
-            type        = 'success',
-            title       = 'FlameDrive Society',
-            description = '$' .. tostring(amount) .. ' withdrawn. New balance: $' .. tostring(newBalance)
-        })
+    TriggerClientEvent('ox_lib:notify', src, {
+        type        = 'success',
+        title       = 'FlameDrive Society',
+        description = '$' .. tostring(amount) .. ' withdrawn. New balance: $' .. tostring(newBalance)
+    })
 
-        -- Discord log
-        exports.frcp_webhook:Send(
-            "dealership",
-            "💰 Society Fund Withdrawal",
-            "**By:** " .. name .. " (`" .. citizenid .. "`)" ..
-            "\n**Amount Withdrawn:** $" .. tostring(amount) ..
-            "\n**Remaining Balance:** $" .. tostring(newBalance),
-            16776960  -- yellow
-        )
+    exports.frcp_webhook:Send(
+        "dealership",
+        "💰 Society Fund Withdrawal",
+        "**By:** " .. name .. " (`" .. citizenid .. "`)" ..
+        "\n**Amount Withdrawn:** $" .. tostring(amount) ..
+        "\n**Remaining Balance:** $" .. tostring(newBalance),
+        16776960
+    )
 
-        print("^2[frcp_dealership] " .. citizenid .. " withdrew $" .. amount .. " | Balance: $" .. newBalance .. "^0")
-    end)
+    print("^2[frcp_dealership] " .. citizenid .. " withdrew $" .. amount .. " | Balance: $" .. newBalance .. "^0")
 end)
 
 -- ============================================
@@ -199,15 +230,7 @@ end)
 -- ============================================
 
 MySQL.ready(function()
-    -- Create tables if they don't exist
-    MySQL.query([[
-        CREATE TABLE IF NOT EXISTS `frcp_dealership_society` (
-            `id`      INT(11)    NOT NULL DEFAULT 1,
-            `balance` BIGINT     NOT NULL DEFAULT 0,
-            PRIMARY KEY (`id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    ]], {})
-
+    -- frcp_dealership_transactions still used for GM reporting / leaderboard
     MySQL.query([[
         CREATE TABLE IF NOT EXISTS `frcp_dealership_transactions` (
             `id`         INT(11)      NOT NULL AUTO_INCREMENT,
@@ -220,6 +243,9 @@ MySQL.ready(function()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]], {})
 
-    loadBalance()
-    print("^2[frcp_dealership] server/society.lua loaded.^0")
+    -- frcp_dealership_society is kept for historical compatibility but the
+    -- live balance is now read directly from Config.BankingResource.
+    -- No loadBalance() call needed.
+    print("^2[frcp_dealership] server/society.lua loaded. Org account: " ..
+          Config.OrgBankAccount .. " via " .. Config.BankingResource .. "^0")
 end)
