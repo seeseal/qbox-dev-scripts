@@ -66,8 +66,6 @@ RegisterNetEvent('frcp_dealership:client:openUI', function(data, standIndex)
     isUIOpen       = true
     activeStandIndex = standIndex  -- remember which stand opened this session
     SetNuiFocus(true, true)
-    -- Fetch display models and send alongside catalog (employee tab needs this)
-    local displayInfo = {}
     TriggerServerEvent('frcp_dealership:server:getDisplayModels')
 
     SendNUIMessage({
@@ -129,14 +127,6 @@ end)
 RegisterNetEvent('frcp_dealership:client:updateSupply', function(model, sold)
     if not isUIOpen then return end
     SendNUIMessage({ action = "updateSupply", model = model, sold = sold })
-end)
-
--- ============================================
---  Society balance received (for boss menu NUI)
--- ============================================
-
-RegisterNetEvent('frcp_dealership:client:receiveSocietyBalance', function(balance)
-    SendNUIMessage({ action = "receiveSocietyBalance", balance = balance })
 end)
 
 -- ============================================

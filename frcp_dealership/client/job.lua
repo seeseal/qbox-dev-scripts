@@ -374,6 +374,11 @@ end
 -- ============================================
 
 RegisterNetEvent('frcp_dealership:client:receiveSocietyBalance', function(balance)
+    -- Forward balance to NUI (GM Office tab) AND open the in-world context menu.
+    -- Previously client/main.lua also registered this event, causing both to fire
+    -- simultaneously. That duplicate has been removed — this is the single handler.
+    SendNUIMessage({ action = "receiveSocietyBalance", balance = balance })
+
     lib.registerContext({
         id    = 'flamedrive_society_menu',
         title = '💰 Society Fund',

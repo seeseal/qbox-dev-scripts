@@ -99,7 +99,36 @@ Config.JobGrades = {
 
 Config.SocietyPercent  = 80     -- % that goes into the dealership fund
 Config.TaxPercent      = 20     -- % that goes to government as tax
-Config.GovBankAccount  = "gov_taxes"  -- !! CHANGE ME !!
+-- ============================================
+--  BANKING INTEGRATION
+--  BankingResource: the exact resource name of
+--  your banking script (check your server.cfg).
+--  Common values: 'Renewed-Banking', 'qbx_banking'
+--  !! CHANGE ME !! to match your server
+--
+--  OrgBankAccount: the account name registered
+--  in your banking script for this dealership.
+--  This is what appears in the banking UI as
+--  "Organization Account / flamedrive".
+--  !! CHANGE ME !! if your account name differs
+--
+--  GovBankAccount: the account that receives
+--  the tax cut on every sale. The account must
+--  already exist in your banking script.
+--  If you don't have a government account set
+--  up yet, set GovTaxEnabled = false and the
+--  tax cut will be absorbed into the society
+--  fund instead (TaxPercent still tracked in
+--  logs but no separate payment is made).
+--  !! CHANGE ME !! to your government account
+-- ============================================
+
+Config.BankingResource = "Renewed-Banking"  -- !! CHANGE ME !!
+Config.OrgBankAccount  = "flamedrive"       -- !! CHANGE ME !!
+Config.GovTaxEnabled   = false              -- set true once gov_taxes account exists
+Config.GovBankAccount  = "gov_taxes"        -- !! CHANGE ME !!
+
+
 
 -- ============================================
 --  TEST DRIVE

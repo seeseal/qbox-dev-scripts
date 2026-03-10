@@ -98,7 +98,7 @@ RegisterNetEvent('frcp_dealership:server:fire', function(targetId)
         return
     end
 
-    if target.PlayerData.job and target.PlayerData.job.name ~= Config.JobName then
+    if not target.PlayerData.job or target.PlayerData.job.name ~= Config.JobName then
         notify(src, 'error', 'That player does not work at FlameDrive.')
         return
     end
@@ -227,6 +227,29 @@ RegisterNetEvent('frcp_dealership:server:demote', function(targetId)
         "\n**Demoted By:** `" .. bossCid .. "`",
         15158332
     )
+end)
+
+-- ============================================
+--  Set Duty State
+--  Called by client on clock-in / clock-out.
+--  Without this the server never updates
+--  job.onDuty, so findEmployeeAtStand always
+--  returns nil and all purchases are blocked.
+-- ============================================
+
+RegisterNetEvent('frcp_dealership:server:setDuty', function(state)
+    local src    = source
+    local player = QBX:GetPlayer(src)
+    if not player then return end
+
+    local job = player.PlayerData.job
+    if not job or job.name ~= Config.JobName then return end
+
+    -- Update our own duty table (reliable across all qbx_core builds)
+    FDDutyPlayers[src] = state and true or nil
+
+    -- Also tell Qbox so other resources that check job.onDuty stay in sync
+    player.Functions.SetJobDuty(state)
 end)
 
 -- ============================================

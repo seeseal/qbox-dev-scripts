@@ -88,7 +88,7 @@ RegisterNetEvent('frcp_dealership:server:changeDisplay', function(spot, model)
         return
     end
 
-    if not job.onDuty then
+    if not FDDutyPlayers[src] then
         TriggerClientEvent('ox_lib:notify', src, {
             type = 'error', description = 'You must be on duty to change display vehicles.'
         })
