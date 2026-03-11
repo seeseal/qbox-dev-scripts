@@ -5,13 +5,15 @@
 -- ║  Each nos_canister item refills canisterRefill.        ║
 -- ╚══════════════════════════════════════════════╝
 
-local nosInstalled     = false
-local nosActive        = false
-local nosPressure      = 1.0   -- 0.0 (empty) → 1.0 (full)
-local nosVehicle       = nil
-local nosThread        = nil
-local nosCountdown     = 0.0
-local nosCooldownEndMs = 0
+local nosInstalled      = false
+local nosActive         = false
+local nosPressure       = 1.0   -- 0.0 (empty) → 1.0 (full)
+local nosVehicle        = nil
+local nosThread         = nil
+local nosCountdown      = 0.0
+-- FIX #7: Store cooldown as real epoch-ms (os.time()*1000) so it survives
+-- game-session restarts and stays in sync with the server's os.time() clock.
+local nosCooldownEndEpochMs = 0
 
 local TORQUE_BOOST = 0.50
 
@@ -20,11 +22,12 @@ local function Notify(msg, ntype, duration)
 end
 
 local function MPHtoMS(mph) return mph * 0.44704 end
-local function NowMs()      return GetGameTimer() end
+-- FIX #7: Use real wall-clock (ms) rather than game timer
+local function NowMs() return os.time() * 1000 end
 
 local function CooldownRemainingSec()
-    if nosCooldownEndMs <= 0 then return 0 end
-    return math.max(0.0, (nosCooldownEndMs - NowMs()) / 1000.0)
+    if nosCooldownEndEpochMs <= 0 then return 0 end
+    return math.max(0.0, (nosCooldownEndEpochMs - NowMs()) / 1000.0)
 end
 
 local function FormatCooldown(secs)
@@ -91,7 +94,7 @@ local function ActivateNOS(veh)
     Notify(Lang:t('nos_activated'), 'success', 2000)
     TriggerServerEvent('fcrp_tuner:server:nosUsed', NetworkGetNetworkIdFromEntity(veh))
 
-    nosCooldownEndMs = NowMs() + (Config.Nitrous.cooldown * 1000)
+    nosCooldownEndEpochMs = NowMs() + (Config.Nitrous.cooldown * 1000)
 
     local elapsed  = 0
     local interval = 100
@@ -150,8 +153,8 @@ end)
 
 -- Server confirms refill and sends new pressure level
 RegisterNetEvent('fcrp_tuner:client:nosRefillConfirmed', function(newPressure)
-    nosPressure      = newPressure or math.min(1.0, nosPressure + Config.Nitrous.canisterRefill)
-    nosCooldownEndMs = 0
+    nosPressure             = newPressure or math.min(1.0, nosPressure + Config.Nitrous.canisterRefill)
+    nosCooldownEndEpochMs   = 0
     local pct = math.floor(nosPressure * 100)
     Notify(string.format('✅ NOS refilled — tank at %d%%', pct), 'success', 4000)
 end)
@@ -200,35 +203,35 @@ end
 --  EVENTS
 -- ─────────────────────────────────────────────
 
--- pressure arg replaces the old isEmpty bool
+-- FIX #7: cooldownUntil is now raw epoch-ms from server (nos_cooldown_until column).
+-- Compare directly against NowMs() (os.time()*1000) — no game-timer conversion needed.
 AddEventHandler('fcrp_tuner:client:nosInstalled', function(veh, silent, cooldownUntil, pressure)
-    -- Kill any existing thread before restarting (prevents double-thread on vehicle swap)
     if nosInstalled then
         nosInstalled = false
         Wait(0)
     end
-    nosInstalled     = true
-    nosVehicle       = veh
-    nosActive        = false
-    nosPressure      = pressure or 1.0
-    nosCooldownEndMs = (cooldownUntil and cooldownUntil > 0) and (NowMs() + cooldownUntil * 1000) or 0
+    nosInstalled            = true
+    nosVehicle              = veh
+    nosActive               = false
+    nosPressure             = pressure or 1.0
+    nosCooldownEndEpochMs   = (cooldownUntil and cooldownUntil > NowMs()) and cooldownUntil or 0
     if not silent then Notify(Lang:t('nos_installed'), 'success', 5000) end
     StartNOSThread(veh)
 end)
 
 AddEventHandler('fcrp_tuner:client:nosRemoved', function()
-    nosInstalled     = false
-    nosActive        = false
-    nosPressure      = 1.0
-    nosCooldownEndMs = 0
-    nosVehicle       = nil
-    nosThread        = nil
+    nosInstalled          = false
+    nosActive             = false
+    nosPressure           = 1.0
+    nosCooldownEndEpochMs = 0
+    nosVehicle            = nil
+    nosThread             = nil
 end)
 
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
-    nosInstalled     = false
-    nosActive        = false
-    nosPressure      = 1.0
-    nosCooldownEndMs = 0
+    nosInstalled          = false
+    nosActive             = false
+    nosPressure           = 1.0
+    nosCooldownEndEpochMs = 0
 end)

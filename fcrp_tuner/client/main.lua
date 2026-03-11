@@ -40,6 +40,9 @@ end
 local _currentMenuVeh   = nil
 local _currentMenuState = nil
 
+-- Declared early so dutyChanged handler (below) can reference it
+local _inClockZone = false
+
 -- ─────────────────────────────────────────────
 --  DUTY STATE
 -- ─────────────────────────────────────────────
@@ -67,6 +70,11 @@ RegisterNetEvent('fcrp_tuner:client:dutyChanged', function(onDuty)
         Notify('🔧 You are now ON duty. Ramp zone is active.', 'success', 4000)
     else
         Notify('🔧 You are now OFF duty.', 'inform', 4000)
+    end
+    -- FIX #9: clock-in TextUI update merged here instead of a separate AddEventHandler
+    -- to prevent the event firing twice (once as RegisterNetEvent, once as AddEventHandler).
+    if _inClockZone then
+        lib.showTextUI('[E] Clock ' .. (isOnDuty and 'Out' or 'In'), { position = 'left-center' })
     end
 end)
 
@@ -519,15 +527,6 @@ lib.zones.sphere({
 --  CLOCK-IN LOCATION  — duty toggle on-foot
 -- ─────────────────────────────────────────────
 
-local _inClockZone = false
-
--- Keep the clock-in text UI label in sync whenever duty state changes
-local _origDutyChanged = nil
-AddEventHandler('fcrp_tuner:client:dutyChanged', function()
-    if _inClockZone then
-        lib.showTextUI('[E] Clock ' .. (isOnDuty and 'Out' or 'In'), { position = 'left-center' })
-    end
-end)
 
 lib.zones.sphere({
     coords  = Config.ClockInLocation,

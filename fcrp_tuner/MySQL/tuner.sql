@@ -46,6 +46,7 @@ INSERT IGNORE INTO `items` (`name`, `label`, `weight`, `stack`, `close`, `descri
     ('drift_chip',        'Drift Chip',        500,  false, true,  'Reduces traction and makes wheels spin more freely.'),
     ('stance_rod',        'Stance Rod',        800,  false, true,  'Adjustable suspension rod used to tune camber and ride height.'),
     ('nos_canister',      'NOS Canister',      1200, false, true,  'Pressurised nitrous oxide. Use while in a vehicle to refill the NOS kit.'),
+    ('damaged_parts',     'Damaged Parts',     500,  true,  false, 'Salvaged components from supply runs. Used to craft tuner chips and kits.'),
     ('electronic_parts',  'Electronic Parts',  300,  true,  false, 'Various electronic components used in chip crafting.'),
     ('metal_scrap',       'Metal Scrap',       600,  true,  false, 'Salvaged metal pieces used in fabrication.'),
     ('rubber',            'Rubber',            400,  true,  false, 'High-grade rubber used in drift chip assembly.'),

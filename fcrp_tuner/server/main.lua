@@ -3,20 +3,23 @@
 -- ╚══════════════════════════════════════════════╝
 
 -- ─────────────────────────────────────────────
+--  HELPERS  (defined first — used everywhere)
+-- ─────────────────────────────────────────────
+
+--- FIX #10: Local Commas() replaces lib.math.groupdigits which is not guaranteed server-side
+local function Commas(n)
+    return tostring(math.floor(n)):reverse():gsub('(%d%d%d)', '%1,'):reverse():gsub('^,', '')
+end
+
+-- ─────────────────────────────────────────────
 --  RUNTIME STATE
 -- ─────────────────────────────────────────────
 
--- Maps displayed fake plate text → real plate (populated from DB on start)
-local fakePlateCache    = {}
-
--- src → true when that tuner is on duty
-local dutyPlayers       = {}
-
--- citizenid → true when that tuner has an active supply run in progress
-local activeRunPlayers  = {}
-
--- citizenid → os.time() of last completed supply run
-local supplyRunCooldowns = {}
+local fakePlateCache     = {}  -- displayed plate → real plate
+local dutyPlayers        = {}  -- src → bool
+local activeRunPlayers   = {}  -- citizenid → reward amount
+local supplyRunCooldowns = {}  -- citizenid → os.time()
+local activeCrafts       = {}  -- src → recipeIdx  (FIX #1: craft session tracking)
 
 -- ─────────────────────────────────────────────
 --  DB INIT
@@ -45,34 +48,32 @@ MySQL.ready(function()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
-    -- Add new columns to existing installs (safe on fresh installs too)
     MySQL.query("ALTER TABLE `fcrp_tuner_mods` ADD COLUMN IF NOT EXISTS `nos_pressure` FLOAT NOT NULL DEFAULT 1.0 AFTER `nos`")
     MySQL.query("ALTER TABLE `fcrp_tuner_mods` ADD COLUMN IF NOT EXISTS `fake_plate` VARCHAR(15) DEFAULT NULL")
     MySQL.query("ALTER TABLE `fcrp_tuner_mods` ADD COLUMN IF NOT EXISTS `vehicle_value` INT NOT NULL DEFAULT 0")
 
-    -- Load fake plate cache from DB
     local rows = MySQL.query.await('SELECT plate, fake_plate FROM fcrp_tuner_mods WHERE fake_plate IS NOT NULL')
     for _, row in ipairs(rows or {}) do
         fakePlateCache[row.fake_plate] = row.plate
     end
 
-    -- Register nos_canister as a usable item
-    exports.ox_inventory:RegisterUsableItem('nos_canister', function(src)
+    -- FIX #4: RegisterUsableItem deprecated in ox_inventory v2+. Use registerHook instead.
+    exports.ox_inventory:registerHook('useItem', function(payload)
+        local src = payload.source
         local ped = GetPlayerPed(src)
         local veh = GetVehiclePedIsIn(ped, false)
         if not veh or veh == 0 then
             TriggerClientEvent('ox_lib:notify', src, { title = 'You must be inside a vehicle to use a NOS Canister.', type = 'error', duration = 3000 })
-            return
+            return false
         end
         TriggerClientEvent('fcrp_tuner:client:useNosCanister', src)
-    end)
+    end, { itemFilter = { ['nos_canister'] = true } })
 end)
 
 -- ─────────────────────────────────────────────
 --  HELPERS
 -- ─────────────────────────────────────────────
 
--- Resolves the real plate for a vehicle, even if a fake plate is currently displayed
 local function GetPlate(netId)
     local veh = NetworkGetEntityFromNetworkId(netId)
     if not veh or veh == 0 then return nil end
@@ -84,8 +85,6 @@ local function GetPlayer(src)
     return exports.qbx_core:GetPlayer(src)
 end
 
--- BUG FIX: replaced the original local GetVehicleClass (which shadowed the native and recursed)
--- and GetVehicleModelName (which used a client-only native). Now operates on the entity handle directly.
 local function IsVehicleBlacklisted(netId)
     local veh = NetworkGetEntityFromNetworkId(netId)
     if not veh or veh == 0 then return false, nil end
@@ -115,13 +114,21 @@ local function IsOnDuty(src)
     return dutyPlayers[src] == true
 end
 
+-- FIX #3: Shared tuner job guard used by all write-only net events
+local function IsTuner(src)
+    local Player = GetPlayer(src)
+    if not Player then return false end
+    local job = Player.PlayerData.job
+    return job and job.name == Config.RequiredJob
+end
+
 local function PayCommission(src, amount)
     local gradeConf = GetJobGradeConfig(src)
     local cut = math.floor(amount * gradeConf.commission)
     if cut <= 0 then return end
     exports.ox_inventory:AddItem(src, Config.PaymentType, cut)
     TriggerClientEvent('ox_lib:notify', src, {
-        title    = string.format('💰 Commission: $%s', lib.math.groupdigits(cut)),
+        title    = string.format('💰 Commission: $%s', Commas(cut)),
         type     = 'success',
         duration = 5000,
     })
@@ -153,10 +160,10 @@ AddEventHandler('playerDropped', function()
     local src    = source
     local Player = GetPlayer(src)
     if Player then
-        local cid = Player.PlayerData.citizenid
-        activeRunPlayers[cid] = nil
+        activeRunPlayers[Player.PlayerData.citizenid] = nil
     end
-    dutyPlayers[src] = nil
+    dutyPlayers[src]  = nil
+    activeCrafts[src] = nil  -- FIX #1: clear dangling craft session on disconnect
 end)
 
 -- ─────────────────────────────────────────────
@@ -175,13 +182,14 @@ lib.callback.register('fcrp_tuner:server:getVehicleState', function(src, netId)
         has_stance = false, stance = nil, has_exhaust = false, fake_plate = nil,
     } end
 
-    local now = os.time() * 1000
+    -- FIX #7: Return raw epoch-ms timestamp. Client computes remaining seconds using
+    -- os.time() (real wall-clock) instead of GetGameTimer(), avoiding game-session drift.
     return {
         engine_chip        = row.engine_chip == 1,
         drift_chip         = row.drift_chip == 1,
         nos                = row.nos == 1,
         nos_pressure       = row.nos_pressure or 1.0,
-        nos_cooldown_until = math.max(0, (row.nos_cooldown_until or 0) - now) / 1000,
+        nos_cooldown_until = row.nos_cooldown_until or 0,
         neon_mode          = row.neon_mode,
         neon_r             = row.neon_r,
         neon_g             = row.neon_g,
@@ -218,9 +226,7 @@ lib.callback.register('fcrp_tuner:server:getDriftChipPrice', function(src, netId
 end)
 
 -- ─────────────────────────────────────────────
---  VEHICLE VALUE  (sent by client on ramp entry)
---  Client reads GetVehicleValue() and reports it so server can
---  compute chip price bonuses without needing KVP natives.
+--  VEHICLE VALUE
 -- ─────────────────────────────────────────────
 
 RegisterNetEvent('fcrp_tuner:server:setVehicleValue', function(netId, value)
@@ -269,7 +275,7 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
     if not Payer then return false, 'Payer not found.' end
 
     local price = 0
-
+    -- Per-product item check (does NOT remove yet — see FIX #5 below)
     if productKey == 'engine_chip' then
         local vrow   = MySQL.single.await('SELECT drift_chip, engine_chip, vehicle_value FROM fcrp_tuner_mods WHERE plate = ?', { plate })
         local stored = (vrow and vrow.vehicle_value) or 0
@@ -278,7 +284,6 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
         if vrow and vrow.engine_chip == 1 then return false, 'Engine chip already installed.' end
         local hasChip = exports.ox_inventory:GetItemCount(payerSrc, 's3_chip')
         if not hasChip or hasChip < 1 then return false, 'Requires 1x S3 Chip item.' end
-        exports.ox_inventory:RemoveItem(payerSrc, 's3_chip', 1)
 
     elseif productKey == 'drift_chip' then
         local vrow   = MySQL.single.await('SELECT engine_chip, drift_chip, vehicle_value FROM fcrp_tuner_mods WHERE plate = ?', { plate })
@@ -288,13 +293,11 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
         if vrow and vrow.drift_chip  == 1 then return false, 'Drift chip already installed.' end
         local hasDrift = exports.ox_inventory:GetItemCount(payerSrc, 'drift_chip')
         if not hasDrift or hasDrift < 1 then return false, 'Requires 1x Drift Chip item.' end
-        exports.ox_inventory:RemoveItem(payerSrc, 'drift_chip', 1)
 
     elseif productKey == 'stance_kit' then
         price = Config.StanceKit.price
         local hasRod = exports.ox_inventory:GetItemCount(payerSrc, 'stance_rod')
         if not hasRod or hasRod < 1 then return false, 'Requires 1x Stance Rod item.' end
-        exports.ox_inventory:RemoveItem(payerSrc, 'stance_rod', 1)
 
     elseif productKey == 'nitrous_kit' then
         price = Config.Nitrous.price
@@ -315,28 +318,39 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
 
     local cash = exports.ox_inventory:GetItemCount(payerSrc, Config.PaymentType)
     if not cash or cash < price then
-        return false, string.format('Not enough dirty cash. Need $%s.', lib.math.groupdigits(price))
+        return false, string.format('Not enough dirty cash. Need $%s.', Commas(price))
     end
-    exports.ox_inventory:RemoveItem(payerSrc, Config.PaymentType, price)
 
-    -- Persist to DB
+    -- FIX #5: DB write FIRST, item removal AFTER. If the server crashes between the two,
+    -- the player retains their items rather than losing them with no DB record written.
+    local neonMap = { neon_static = 'static', neon_rainbow = 'rainbow', neon_rgb = 'rgb', neon_strobe = 'strobe' }
     local saveMap = {
         engine_chip = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, engine_chip) VALUES (?, 1) ON DUPLICATE KEY UPDATE engine_chip = 1', { plate }) end,
         drift_chip  = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, drift_chip)  VALUES (?, 1) ON DUPLICATE KEY UPDATE drift_chip  = 1', { plate }) end,
-        stance_kit  = function() end,  -- saved separately via saveStance
-        fake_plate  = function() end,  -- saved separately via applyFakePlate
+        stance_kit  = function() end,
+        fake_plate  = function() end,
         nitrous_kit = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, nos, nos_pressure) VALUES (?, 1, 1.0) ON DUPLICATE KEY UPDATE nos = 1, nos_pressure = 1.0', { plate }) end,
         exhaust_mod = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, has_exhaust) VALUES (?, 1) ON DUPLICATE KEY UPDATE has_exhaust = 1', { plate }) end,
     }
-    local neonMap = { neon_static = 'static', neon_rainbow = 'rainbow', neon_rgb = 'rgb', neon_strobe = 'strobe' }
+
     if neonMap[productKey] then
         MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, neon_mode) VALUES (?, ?) ON DUPLICATE KEY UPDATE neon_mode = ?', { plate, neonMap[productKey], neonMap[productKey] })
     elseif saveMap[productKey] then
         saveMap[productKey]()
     end
 
+    -- DB record committed — now safe to consume items
+    exports.ox_inventory:RemoveItem(payerSrc, Config.PaymentType, price)
+    if productKey == 'engine_chip' then
+        exports.ox_inventory:RemoveItem(payerSrc, 's3_chip', 1)
+    elseif productKey == 'drift_chip' then
+        exports.ox_inventory:RemoveItem(payerSrc, 'drift_chip', 1)
+    elseif productKey == 'stance_kit' then
+        exports.ox_inventory:RemoveItem(payerSrc, 'stance_rod', 1)
+    end
+
     PayCommission(src, price)
-    LogDiscord('Mod Purchased', string.format('**Mod:** %s\n**Plate:** %s\n**Price:** $%s', productKey, plate, lib.math.groupdigits(price)), nil, src)
+    LogDiscord('Mod Purchased', string.format('**Mod:** %s\n**Plate:** %s\n**Price:** $%s', productKey, plate, Commas(price)), nil, src)
     return true, price
 end)
 
@@ -354,7 +368,6 @@ lib.callback.register('fcrp_tuner:server:removeMod', function(src, netId, modKey
             fakePlateCache[row.fake_plate] = nil
         end
         MySQL.query.await('UPDATE fcrp_tuner_mods SET fake_plate = NULL WHERE plate = ?', { plate })
-        -- Broadcast plate restoration to all clients
         TriggerClientEvent('fcrp_tuner:client:restoreRealPlate', -1, netId, plate)
         return true
     end
@@ -374,13 +387,18 @@ end)
 
 -- ─────────────────────────────────────────────
 --  STANCE SAVE
---  BUG FIX: parameter order corrected — client sends (camberF, camberR, height)
---  Old signature (camber, height, wheeldist) swapped rear camber and ride height in the DB.
 -- ─────────────────────────────────────────────
 
+-- FIX #3: tuner job check. FIX: clamp values to config bounds to prevent exploit.
 RegisterNetEvent('fcrp_tuner:server:saveStance', function(netId, camberF, camberR, height)
+    local src = source
+    if not IsTuner(src) then return end
     local plate = GetPlate(netId)
     if not plate then return end
+    local cfg = Config.StanceKit
+    camberF = math.max(cfg.camberMin,     math.min(cfg.camberMax,     tonumber(camberF) or 0))
+    camberR = math.max(cfg.camberMin,     math.min(cfg.camberMax,     tonumber(camberR) or 0))
+    height  = math.max(cfg.rideHeightMin, math.min(cfg.rideHeightMax, tonumber(height)  or 0))
     MySQL.query.await([[
         INSERT INTO fcrp_tuner_mods (plate, stance_camber, stance_height, stance_wheeldist)
         VALUES (?, ?, ?, ?)
@@ -388,17 +406,24 @@ RegisterNetEvent('fcrp_tuner:server:saveStance', function(netId, camberF, camber
             stance_camber    = VALUES(stance_camber),
             stance_height    = VALUES(stance_height),
             stance_wheeldist = VALUES(stance_wheeldist)
-    ]], { plate, camberF, height, camberR })  -- wheeldist column stores camberR
+    ]], { plate, camberF, height, camberR })
 end)
 
 -- ─────────────────────────────────────────────
 --  NEON SAVE
---  BUG FIX: renamed from saveNeonColour → saveNeon to match client/neon.lua
 -- ─────────────────────────────────────────────
 
+-- FIX #3: tuner job check + mode/RGB validation
 RegisterNetEvent('fcrp_tuner:server:saveNeon', function(netId, mode, r, g, b)
+    local src = source
+    if not IsTuner(src) then return end
     local plate = GetPlate(netId)
     if not plate then return end
+    local validModes = { static = true, rainbow = true, rgb = true, strobe = true }
+    if not validModes[mode] then return end
+    r = r and math.max(0, math.min(255, math.floor(tonumber(r) or 0))) or nil
+    g = g and math.max(0, math.min(255, math.floor(tonumber(g) or 0))) or nil
+    b = b and math.max(0, math.min(255, math.floor(tonumber(b) or 0))) or nil
     MySQL.query.await('UPDATE fcrp_tuner_mods SET neon_mode = ?, neon_r = ?, neon_g = ?, neon_b = ? WHERE plate = ?', { mode, r, g, b, plate })
 end)
 
@@ -406,14 +431,16 @@ end)
 --  FAKE PLATE
 -- ─────────────────────────────────────────────
 
+-- FIX #3: tuner job check added
 RegisterNetEvent('fcrp_tuner:server:applyFakePlate', function(netId, plateText)
     local src = source
+    if not IsTuner(src) then return end
+
     if not plateText or #plateText < 1 or #plateText > 8 then
         TriggerClientEvent('ox_lib:notify', src, { title = 'Invalid plate text.', type = 'error', duration = 3000 })
         return
     end
 
-    -- Sanitise: uppercase alphanumeric + spaces only
     plateText = string.upper(plateText):gsub('[^A-Z0-9 ]', '')
     if #plateText < 1 then
         TriggerClientEvent('ox_lib:notify', src, { title = 'Invalid plate text — use letters and numbers only.', type = 'error', duration = 3000 })
@@ -431,7 +458,6 @@ RegisterNetEvent('fcrp_tuner:server:applyFakePlate', function(netId, plateText)
     MySQL.query.await('UPDATE fcrp_tuner_mods SET fake_plate = ? WHERE plate = ?', { plateText, plate })
     fakePlateCache[plateText] = plate
 
-    -- Broadcast to all clients so every player sees the new plate
     TriggerClientEvent('fcrp_tuner:client:applyFakePlate', -1, netId, plateText)
     LogDiscord('Fake Plate Applied', string.format('**Real Plate:** %s\n**Fake Plate:** %s', plate, plateText), 16776960, src)
 end)
@@ -440,12 +466,13 @@ end)
 --  NOS — pressure drain on activation
 -- ─────────────────────────────────────────────
 
+-- FIX #2: WHERE nos = 1 prevents clients draining pressure on vehicles without NOS installed
 RegisterNetEvent('fcrp_tuner:server:nosUsed', function(netId)
     local plate   = GetPlate(netId)
     if not plate then return end
     local expires = (os.time() + Config.Nitrous.cooldown) * 1000
     MySQL.query.await(
-        'UPDATE fcrp_tuner_mods SET nos_pressure = GREATEST(0.0, nos_pressure - ?), nos_cooldown_until = ? WHERE plate = ?',
+        'UPDATE fcrp_tuner_mods SET nos_pressure = GREATEST(0.0, nos_pressure - ?), nos_cooldown_until = ? WHERE plate = ? AND nos = 1',
         { Config.Nitrous.pressureDrain, expires, plate }
     )
 end)
@@ -483,7 +510,6 @@ RegisterNetEvent('fcrp_tuner:server:useNosCanister', function(netId)
         { Config.Nitrous.canisterRefill, plate }
     )
 
-    -- Return new pressure to client
     local updated = MySQL.single.await('SELECT nos_pressure FROM fcrp_tuner_mods WHERE plate = ?', { plate })
     local newPressure = updated and updated.nos_pressure or math.min(1.0, currentPressure + Config.Nitrous.canisterRefill)
     TriggerClientEvent('fcrp_tuner:client:nosRefillConfirmed', src, newPressure)
@@ -493,6 +519,9 @@ end)
 --  CRAFT SYSTEM  (Tuner II + Master Tuner only)
 -- ─────────────────────────────────────────────
 
+-- FIX #1: activeCrafts[src] tracks open sessions.
+-- craftComplete and craftCancel both require a matching session entry,
+-- preventing any client from calling craftCancel to receive free items.
 lib.callback.register('fcrp_tuner:server:craftItem', function(src, recipeIdx)
     local gradeConf = GetJobGradeConfig(src)
     if not gradeConf.canCraft then
@@ -500,6 +529,10 @@ lib.callback.register('fcrp_tuner:server:craftItem', function(src, recipeIdx)
     end
     local recipe = Config.CraftRecipes[recipeIdx]
     if not recipe then return false, 'Invalid recipe.' end
+
+    if activeCrafts[src] then
+        return false, 'You already have a craft in progress.'
+    end
 
     for _, ing in ipairs(recipe.ingredients) do
         local count = exports.ox_inventory:GetItemCount(src, ing.item)
@@ -510,11 +543,16 @@ lib.callback.register('fcrp_tuner:server:craftItem', function(src, recipeIdx)
     for _, ing in ipairs(recipe.ingredients) do
         exports.ox_inventory:RemoveItem(src, ing.item, ing.amount)
     end
+
+    activeCrafts[src] = recipeIdx
     return true
 end)
 
 RegisterNetEvent('fcrp_tuner:server:craftComplete', function(recipeIdx)
-    local src    = source
+    local src = source
+    if activeCrafts[src] ~= recipeIdx then return end
+    activeCrafts[src] = nil
+
     local recipe = Config.CraftRecipes[recipeIdx]
     if not recipe then return end
     exports.ox_inventory:AddItem(src, recipe.item, 1)
@@ -522,7 +560,10 @@ RegisterNetEvent('fcrp_tuner:server:craftComplete', function(recipeIdx)
 end)
 
 RegisterNetEvent('fcrp_tuner:server:craftCancel', function(recipeIdx)
-    local src    = source
+    local src = source
+    if activeCrafts[src] ~= recipeIdx then return end  -- FIX #1: must match open session
+    activeCrafts[src] = nil
+
     local recipe = Config.CraftRecipes[recipeIdx]
     if not recipe then return end
     for _, ing in ipairs(recipe.ingredients) do
@@ -597,8 +638,8 @@ lib.addCommand('supplyrun', {
         return
     end
 
-    local now = os.time()
-    local lastRun = supplyRunCooldowns[cid] or 0
+    local now       = os.time()
+    local lastRun   = supplyRunCooldowns[cid] or 0
     local remaining = Config.SupplyRun.cooldown - (now - lastRun)
     if remaining > 0 then
         local m = math.floor(remaining / 60)
@@ -614,7 +655,7 @@ lib.addCommand('supplyrun', {
     local loc    = Config.SupplyRun.Locations[math.random(#Config.SupplyRun.Locations)]
     local reward = math.random(Config.SupplyRun.rewardMin, Config.SupplyRun.rewardMax)
 
-    activeRunPlayers[cid] = reward   -- store value, not just boolean
+    activeRunPlayers[cid] = reward
     TriggerClientEvent('fcrp_tuner:client:startSupplyRun', src, { x = loc.x, y = loc.y, z = loc.z }, reward)
     TriggerClientEvent('ox_lib:notify', src, { title = '🚚 Supply run dispatched! Follow the blip.', type = 'inform', duration = 5000 })
 end)
@@ -626,7 +667,7 @@ RegisterNetEvent('fcrp_tuner:server:completeSupplyRun', function()
     local cid = Player.PlayerData.citizenid
 
     if not activeRunPlayers[cid] then return end
-    local safeReward        = activeRunPlayers[cid]  -- use server-stored value
+    local safeReward        = activeRunPlayers[cid]
     activeRunPlayers[cid]   = nil
     supplyRunCooldowns[cid] = os.time()
     exports.ox_inventory:AddItem(src, 'damaged_parts', safeReward)
@@ -660,8 +701,6 @@ lib.addCommand('checkchip', {
     TriggerClientEvent('fcrp_tuner:client:checkChip', src)
 end)
 
--- BUG FIX: removed `restricted = 'group.police'` — Qbox doesn't auto-assign ACE groups per job.
--- Now uses a manual job check matching /checkchip.
 lib.addCommand('removechip', {
     help = 'Remove the engine chip from a nearby vehicle.',
 }, function(src)
@@ -673,7 +712,6 @@ lib.addCommand('removechip', {
     TriggerClientEvent('fcrp_tuner:client:pdRemoveChipRequest', src)
 end)
 
--- NEW: full mod inspection for all tuner mods on a vehicle
 lib.addCommand('inspectcar', {
     help = 'Inspect a nearby vehicle for all illegal tuner modifications.',
 }, function(src)
@@ -685,7 +723,6 @@ lib.addCommand('inspectcar', {
     TriggerClientEvent('fcrp_tuner:client:requestInspect', src)
 end)
 
--- NEW: fake plate scanner
 lib.addCommand('scanplate', {
     help = 'Scan a nearby vehicle to check for a fake plate.',
 }, function(src)
