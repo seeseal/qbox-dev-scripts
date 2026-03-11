@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NUI Test</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: transparent;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Arial, sans-serif;
+        }
+        #test-box {
+            background: #1A1A2E;
+            border: 2px solid #7B2FBE;
+            border-radius: 12px;
+            padding: 40px;
+            color: white;
+            text-align: center;
+            display: none;
+        }
+        #test-box h1 { color: #9B4FDE; margin-bottom: 12px; }
+        #test-box p  { color: #A0A0C0; margin-bottom: 20px; }
+        #log         { background: #0D0D14; padding: 12px; border-radius: 8px;
+                       font-size: 12px; color: #4CAF50; text-align: left;
+                       max-height: 200px; overflow-y: auto; }
+        button {
+            margin-top: 16px;
+            padding: 10px 24px;
+            background: #7B2FBE;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div id="test-box">
+    <h1>NUI Test</h1>
+    <p>If you can see this, NUI is rendering correctly.</p>
+    <div id="log">Waiting for messages...<br></div>
+    <button onclick="sendClose()">Close (test)</button>
+</div>
+
+<script>
+    var logEl = document.getElementById('log');
+
+    function addLog(msg) {
+        logEl.innerHTML += msg + '<br>';
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Listen for messages from Lua
+    window.addEventListener('message', function(event) {
+        var action = event.data.action;
+        addLog('Received action: ' + action);
+        addLog('Data keys: ' + Object.keys(event.data).join(', '));
+
+        if (action === 'openDealership') {
+            document.getElementById('test-box').style.display = 'block';
+            addLog('UI shown. Catalog length: ' + (event.data.data ? event.data.data.catalog.length : 'NO DATA'));
+        }
+
+        if (action === 'closeUI') {
+            document.getElementById('test-box').style.display = 'none';
+            addLog('UI hidden.');
+        }
+    });
+
+    function sendClose() {
+        fetch('https://' + GetParentResourceName() + '/closeUI', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+    }
+
+    addLog('Script loaded OK.');
+</script>
+</body>
+</html>
