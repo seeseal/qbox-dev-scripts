@@ -548,9 +548,7 @@ end)
 --  DUTY TOGGLE
 -- ─────────────────────────────────────────────
 
-lib.addCommand('tunerduty', {
-    help = 'Toggle on/off duty as a tuner.',
-}, function(src)
+local function ToggleDuty(src)
     local Player = GetPlayer(src)
     if not Player then return end
     local job = Player.PlayerData.job
@@ -562,6 +560,16 @@ lib.addCommand('tunerduty', {
     local onDuty = dutyPlayers[src]
     TriggerClientEvent('fcrp_tuner:client:dutyChanged', src, onDuty)
     LogDiscord('Duty Toggle', string.format('**Status:** %s', onDuty and 'ON DUTY' or 'OFF DUTY'), onDuty and 65280 or 16711680, src)
+end
+
+lib.addCommand('tunerduty', {
+    help = 'Toggle on/off duty as a tuner.',
+}, function(src)
+    ToggleDuty(src)
+end)
+
+RegisterNetEvent('fcrp_tuner:server:clockIn', function()
+    ToggleDuty(source)
 end)
 
 -- ─────────────────────────────────────────────

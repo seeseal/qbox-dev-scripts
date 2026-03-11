@@ -34,6 +34,13 @@ local function GetDrivenVehicle()
 end
 
 -- ─────────────────────────────────────────────
+--  SHARED MENU STATE  (declared early — used by multiple functions below)
+-- ─────────────────────────────────────────────
+
+local _currentMenuVeh   = nil
+local _currentMenuState = nil
+
+-- ─────────────────────────────────────────────
 --  DUTY STATE
 -- ─────────────────────────────────────────────
 
@@ -46,10 +53,10 @@ RegisterNetEvent('fcrp_tuner:client:dutyChanged', function(onDuty)
     for _, b in ipairs(dutyBlips) do RemoveBlip(b) end
     dutyBlips = {}
     if onDuty then
-        for _, coords in ipairs(Config.RampLocations) do
-            local b = AddBlipForCoord(coords.x, coords.y, coords.z)
-            SetBlipSprite(b, 446)           -- wrench
-            SetBlipColour(b, 2)             -- green
+        for _, bay in ipairs(Config.WorkshopBays) do
+            local b = AddBlipForCoord(bay.coords.x, bay.coords.y, bay.coords.z)
+            SetBlipSprite(b, 446)
+            SetBlipColour(b, 2)
             SetBlipScale(b, 0.8)
             SetBlipAsShortRange(b, true)
             BeginTextCommandSetBlipName('STRING')
@@ -261,13 +268,6 @@ local function OpenRemoveMenu(veh, state)
 end
 
 -- ─────────────────────────────────────────────
---  SHARED MENU STATE
--- ─────────────────────────────────────────────
-
-local _currentMenuVeh   = nil
-local _currentMenuState = nil
-
--- ─────────────────────────────────────────────
 --  BUILD SHOP ITEMS
 -- ─────────────────────────────────────────────
 
@@ -356,10 +356,12 @@ local function BuildShopItems(veh, state, isTuner, grade, enginePrice, driftPric
 end
 
 -- ─────────────────────────────────────────────
---  RAMP ZONE  — background prefetch, instant menu
+--  WORKSHOP BAYS  — vehicle pull-in zones
+--  Replaces the old RampLocations system.
+--  Player drives into a bay, presses E to open the shop.
 -- ─────────────────────────────────────────────
 
-local inRamp  = false
+local inRamp   = false
 local menuOpen = false
 
 local _cachedState       = nil
@@ -382,9 +384,10 @@ local function PrefetchState(veh)
     end, netId)
 end
 
-for _, rampCoords in ipairs(Config.RampLocations) do
+for _, bay in ipairs(Config.WorkshopBays) do
+    local coords = vec3(bay.coords.x, bay.coords.y, bay.coords.z)
     lib.zones.sphere({
-        coords  = rampCoords,
+        coords  = coords,
         radius  = Config.RampRadius,
         onEnter = function()
             local veh = GetDrivenVehicle()
@@ -393,7 +396,6 @@ for _, rampCoords in ipairs(Config.RampLocations) do
                 return
             end
             inRamp = true
-            -- Report vehicle value so server can compute chip price bonuses
             local netId = NetworkGetNetworkIdFromEntity(veh)
             local value = GetVehicleValue(veh)
             TriggerServerEvent('fcrp_tuner:server:setVehicleValue', netId, value)
@@ -406,7 +408,6 @@ for _, rampCoords in ipairs(Config.RampLocations) do
                         if not v then
                             Notify(Lang:t('ramp_no_vehicle'), 'error', 3000)
                         elseif HasTunerJob() and not isOnDuty then
-                            -- Tuner is present but off duty — block shop
                             Notify('You are off duty. Use /tunerduty to go on duty.', 'error', 3000)
                         else
                             menuOpen = true
@@ -424,19 +425,19 @@ for _, rampCoords in ipairs(Config.RampLocations) do
                             if _cachedState then
                                 openWithState(_cachedState, _cachedEnginePrice, _cachedDriftPrice)
                             else
-                                local netId = NetworkGetNetworkIdFromEntity(v)
+                                local nId = NetworkGetNetworkIdFromEntity(v)
                                 lib.callback('fcrp_tuner:server:getVehicleState', false, function(state)
                                     if not state then menuOpen = false return end
                                     if not state.engine_chip and not state.drift_chip then
                                         lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(ep)
                                             lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(dp)
                                                 openWithState(state, ep, dp)
-                                            end, netId)
-                                        end, netId)
+                                            end, nId)
+                                        end, nId)
                                     else
                                         openWithState(state, nil, nil)
                                     end
-                                end, netId)
+                                end, nId)
                             end
                         end
                     end
@@ -453,6 +454,176 @@ for _, rampCoords in ipairs(Config.RampLocations) do
         end,
     })
 end
+
+-- ─────────────────────────────────────────────
+--  SHOP ENTRANCE  — on-foot interaction
+--  Tuner or customer stands here to access the shop
+--  for a vehicle parked in a nearby bay.
+-- ─────────────────────────────────────────────
+
+local _inShopZone = false
+lib.zones.sphere({
+    coords  = Config.ShopLocation,
+    radius  = Config.ShopRadius,
+    onEnter = function()
+        lib.showTextUI('[E] Open Tuner Shop', { position = 'left-center' })
+        _inShopZone = true
+
+        CreateThread(function()
+            while _inShopZone do
+                if IsControlJustPressed(0, 51) then
+                    local ped    = PlayerPedId()
+                    local pos    = GetEntityCoords(ped)
+                    local target = nil
+                    local bestDist = 20.0
+                    for _, bay in ipairs(Config.WorkshopBays) do
+                        local bcoords = vec3(bay.coords.x, bay.coords.y, bay.coords.z)
+                        local veh = GetClosestVehicle(bcoords.x, bcoords.y, bcoords.z, Config.RampRadius, 0, 71)
+                        if veh and veh ~= 0 then
+                            local d = #(pos - GetEntityCoords(veh))
+                            if d < bestDist then bestDist = d; target = veh end
+                        end
+                    end
+                    if not target then
+                        Notify('No vehicle in the workshop bays.', 'error', 3000)
+                    else
+                        local isTuner = HasTunerJob()
+                        local grade   = isTuner and GetPlayerGrade() or 0
+                        local nId     = NetworkGetNetworkIdFromEntity(target)
+                        local value   = GetVehicleValue(target)
+                        TriggerServerEvent('fcrp_tuner:server:setVehicleValue', nId, value)
+                        lib.callback('fcrp_tuner:server:getVehicleState', false, function(state)
+                            if not state then return end
+                            lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(ep)
+                                lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(dp)
+                                    _currentMenuVeh   = target
+                                    _currentMenuState = state
+                                    local items = BuildShopItems(target, state, isTuner, grade, ep, dp)
+                                    UI_OpenShop(items, '')
+                                end, nId)
+                            end, nId)
+                        end, nId)
+                    end
+                end
+                Wait(0)
+            end
+        end)
+    end,
+    onExit = function()
+        _inShopZone = false
+        lib.hideTextUI()
+    end,
+})
+
+-- ─────────────────────────────────────────────
+--  CLOCK-IN LOCATION  — duty toggle on-foot
+-- ─────────────────────────────────────────────
+
+local _inClockZone = false
+
+-- Keep the clock-in text UI label in sync whenever duty state changes
+local _origDutyChanged = nil
+AddEventHandler('fcrp_tuner:client:dutyChanged', function()
+    if _inClockZone then
+        lib.showTextUI('[E] Clock ' .. (isOnDuty and 'Out' or 'In'), { position = 'left-center' })
+    end
+end)
+
+lib.zones.sphere({
+    coords  = Config.ClockInLocation,
+    radius  = 1.5,
+    onEnter = function()
+        if not HasTunerJob() then return end
+        lib.showTextUI('[E] Clock ' .. (isOnDuty and 'Out' or 'In'), { position = 'left-center' })
+        _inClockZone = true
+
+        CreateThread(function()
+            while _inClockZone do
+                if IsControlJustPressed(0, 51) then
+                    TriggerServerEvent('fcrp_tuner:server:clockIn')
+                end
+                Wait(0)
+            end
+        end)
+    end,
+    onExit = function()
+        if not _inClockZone then return end
+        _inClockZone = false
+        lib.hideTextUI()
+    end,
+})
+
+-- ─────────────────────────────────────────────
+--  STASH LOCATION  — society stash (Master Tuner only)
+-- ─────────────────────────────────────────────
+
+local _inStashZone = false
+lib.zones.sphere({
+    coords  = Config.StashLocation,
+    radius  = 1.5,
+    onEnter = function()
+        if not HasTunerJob() then return end
+        local grade = GetPlayerGrade()
+        if not Config.JobGrades[grade] or not Config.JobGrades[grade].isOwner then return end
+        lib.showTextUI('[E] Society Stash', { position = 'left-center' })
+        _inStashZone = true
+
+        CreateThread(function()
+            while _inStashZone do
+                if IsControlJustPressed(0, 51) then
+                    TriggerServerEvent('fcrp_tuner:server:openSocietyStash')
+                end
+                Wait(0)
+            end
+        end)
+    end,
+    onExit = function()
+        if not _inStashZone then return end
+        _inStashZone = false
+        lib.hideTextUI()
+    end,
+})
+
+-- ─────────────────────────────────────────────
+--  CRAFTING AREA  — single merged zone covering all bench locations
+--  Bench coords are ≤2.75 m apart; a radius-4 zone centred on their
+--  midpoint covers them all without triggering multiple onEnter/onExit events.
+-- ─────────────────────────────────────────────
+
+local _inCraftZone = false
+
+local function CalcCentroid(locations)
+    local sx, sy, sz = 0, 0, 0
+    for _, v in ipairs(locations) do sx = sx + v.x; sy = sy + v.y; sz = sz + v.z end
+    local n = #locations
+    return vec3(sx / n, sy / n, sz / n)
+end
+
+lib.zones.sphere({
+    coords  = CalcCentroid(Config.CraftingLocations),
+    radius  = 4.0,
+    onEnter = function()
+        if not HasTunerJob() then return end
+        local grade = GetPlayerGrade()
+        if not Config.JobGrades[grade] or not Config.JobGrades[grade].canCraft then return end
+        lib.showTextUI('[E] Crafting Bench', { position = 'left-center' })
+        _inCraftZone = true
+
+        CreateThread(function()
+            while _inCraftZone do
+                if IsControlJustPressed(0, 51) then
+                    OpenCraftMenu()
+                end
+                Wait(0)
+            end
+        end)
+    end,
+    onExit = function()
+        if not _inCraftZone then return end
+        _inCraftZone = false
+        lib.hideTextUI()
+    end,
+})
 
 -- ─────────────────────────────────────────────
 --  SHOP ACTION HANDLER

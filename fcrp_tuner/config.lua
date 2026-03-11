@@ -25,12 +25,45 @@ Config.BlacklistedVehicleClasses = { 13, 14, 15, 16, 18, 19, 21 }
 Config.BlacklistedVehicles       = { 'police', 'police2', 'police3', 'sheriff', 'ambulance', 'firetruk' }
 
 -- ─────────────────────────────────────────────
---  RAMP LOCATIONS
+--  SHOP ENTRANCE
+--  !! CHANGE ME !! coords for the tuner shop entrance
+--  Stand at the location in-game, type /coords, paste below
+-- ─────────────────────────────────────────────
+Config.ShopLocation = vector3(-331.35, -133.62, 38.06)
+Config.ShopHeading  = 250.0   -- !! CHANGE ME !! heading the player faces when opening the menu
+Config.ShopRadius   = 2.5     -- How close the player must be to use the shop (metres)
+
+-- ─────────────────────────────────────────────
+--  RAMP LOCATIONS  (vehicle pull-in detection zones)
 -- ─────────────────────────────────────────────
 Config.RampLocations = {
     vector3(-323.29, -132.12, 38.96),
 }
 Config.RampRadius = 8.0
+
+-- ═══════════════════════════════════════════════════════════════
+--  WORKSHOP BAYS  (vehicle pull-in zones)
+-- ═══════════════════════════════════════════════════════════════
+Config.WorkshopBays = {
+    { coords = vector4(135.8,  -3030.52, 5.66, 179.23) },
+    { coords = vector4(145.01, -3030.66, 5.66, 180.31) },
+}
+
+-- ═══════════════════════════════════════════════════════════════
+--  CLOCK-IN / STASH
+-- ═══════════════════════════════════════════════════════════════
+Config.ClockInLocation = vector3(126.06, -3007.91, 6.04)
+Config.StashLocation   = vector3(128.57, -3009.02, 6.04)
+
+-- ═══════════════════════════════════════════════════════════════
+--  CRAFTING BENCHES
+-- ═══════════════════════════════════════════════════════════════
+Config.CraftingLocations = {
+    vector3(126.32, -3030.21, 6.06),
+    vector3(124.48, -3031.73, 6.04),
+    vector3(124.33, -3028.98, 6.04),
+    vector3(126.78, -3029.01, 6.04),
+}
 
 -- ─────────────────────────────────────────────
 --  DISCORD / LOGGING
