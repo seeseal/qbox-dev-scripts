@@ -10,6 +10,16 @@ local function Notify(msg, ntype, duration)
     lib.notify({ title = msg, type = ntype or 'inform', duration = duration or 3000 })
 end
 
+local function GetPlayerGrade()
+    local pd = exports.qbx_core:GetPlayerData()
+    if not pd or not pd.job then return 0 end
+    return pd.job.grade and pd.job.grade.level or 0
+end
+
+local function GetGradeConfig(grade)
+    return Config.JobGrades[grade] or Config.JobGrades[0]
+end
+
 local function HasTunerJob()
     local pd = exports.qbx_core:GetPlayerData()
     return pd.job and pd.job.name == Config.RequiredJob
@@ -78,12 +88,10 @@ local function GetPassengerThenPurchase(veh, productKey, installMs, label, onSuc
             else
                 completed = true
             end
-
             if not completed then
                 Notify(Lang:t('cancelled'), 'error', 3000)
                 return
             end
-
             lib.callback('fcrp_tuner:server:purchase', false,
                 function(result, reasonOrPrice)
                     if not result then
@@ -101,18 +109,16 @@ end
 --  ENGINE CHIP
 -- ─────────────────────────────────────────────
 
-local function BuyEngineChip(veh)
+local function BuyEngineChip(veh, cachedPrice, cachedBonus)
     local netId = NetworkGetNetworkIdFromEntity(veh)
-    lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(price, depotValue, bonus)
+    local function doDialog(price, bonus)
         CreateThread(function()
             local confirmed = lib.alertDialog({
                 header   = '🔧 Engine Chip',
                 content  = string.format(
-                    'Increases your vehicle\'s top speed by **%d%%**.\n\n💵 Cost: **$%s dirty cash**\n_(Base $%s + 30%% car value $%s)_',
+                    'Increases your vehicle\'s top speed by **%d%%**.\n\n💵 Cost: **$%s dirty cash**',
                     Config.EngineChip.speedBoostPercent,
-                    lib.math.groupdigits(price),
-                    lib.math.groupdigits(Config.EngineChip.basePrice),
-                    lib.math.groupdigits(bonus)
+                    lib.math.groupdigits(price)
                 ),
                 centered = true,
                 cancel   = true,
@@ -129,79 +135,31 @@ local function BuyEngineChip(veh)
                 end)
             end)
         end)
-    end, netId)
-end
-
--- ─────────────────────────────────────────────
---  UNINSTALL MENU
--- ─────────────────────────────────────────────
-
-local function OpenRemoveMenu(veh, state)
-    local items = {}
-
-    items[#items + 1] = { type = 'section', label = 'Remove Mods' }
-
-    if state.engine_chip then
-        items[#items + 1] = {
-            icon = '🔧', name = 'Remove Engine Chip',
-            desc = 'Uninstall the engine speed chip',
-            action = 'remove_engine_chip',
-        }
-    end
-    if state.drift_chip then
-        items[#items + 1] = {
-            icon = '🚗', name = 'Remove Drift Chip',
-            desc = 'Uninstall the drift handling chip',
-            action = 'remove_drift_chip',
-        }
-    end
-    if state.nos then
-        items[#items + 1] = {
-            icon = '🚀', name = 'Remove NOS Kit',
-            desc = 'Uninstall the nitrous kit',
-            action = 'remove_nos',
-        }
-    end
-    if state.neon_mode then
-        items[#items + 1] = {
-            icon = '💡', name = 'Remove Neon',
-            desc = 'Turn off and remove neon lighting',
-            action = 'remove_neon',
-        }
-    end
-    if state.has_stance then
-        items[#items + 1] = {
-            icon = '📐', name = 'Remove Stance Kit',
-            desc = 'Reset camber and ride height',
-            action = 'remove_stance',
-        }
     end
 
-    if #items <= 1 then
-        Notify('No mods installed on this vehicle.', 'inform', 3000)
-        return
+    -- Use cached price if available, otherwise fetch
+    if cachedPrice then
+        doDialog(cachedPrice, cachedBonus or 0)
+    else
+        lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(price, _, bonus)
+            doDialog(price, bonus)
+        end, netId)
     end
-
-    _currentMenuVeh   = veh
-    _currentMenuState = state
-    UI_OpenShop(items, 'Remove installed mods')
 end
 
 -- ─────────────────────────────────────────────
 --  DRIFT CHIP
 -- ─────────────────────────────────────────────
 
-local function BuyDriftChip(veh)
+local function BuyDriftChip(veh, cachedPrice, cachedBonus)
     local netId = NetworkGetNetworkIdFromEntity(veh)
-    lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(price, depotValue, bonus)
+    local function doDialog(price, bonus)
         CreateThread(function()
             local confirmed = lib.alertDialog({
                 header   = '🚗 Drift Chip',
                 content  = string.format(
-                    'Reduces traction by **20%%** and produces heavy tyre smoke — turns your car into a drift machine.\n\n💵 Cost: **$%s dirty cash**\n_(Base $%s + 20%% car value $%s)_',
-                    lib.math.groupdigits(price),
-                    lib.math.groupdigits(Config.DriftChip.basePrice),
-                    lib.math.groupdigits(bonus)
+                    'Reduces traction by **20%%** and produces heavy tyre smoke.\n\n💵 Cost: **$%s dirty cash**',
+                    lib.math.groupdigits(price)
                 ),
                 centered = true,
                 cancel   = true,
@@ -212,7 +170,100 @@ local function BuyDriftChip(veh)
                 Notify(Lang:t('drift_chip_installed'), 'success', 4000)
             end)
         end)
-    end, netId)
+    end
+
+    if cachedPrice then
+        doDialog(cachedPrice, cachedBonus or 0)
+    else
+        lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(price, _, bonus)
+            doDialog(price, bonus)
+        end, netId)
+    end
+end
+
+-- ─────────────────────────────────────────────
+--  CRAFT MENU  (Tuner II + Master Tuner only)
+-- ─────────────────────────────────────────────
+
+local function OpenCraftMenu()
+    local options = {}
+    for i, recipe in ipairs(Config.CraftRecipes) do
+        local desc = 'Requires: '
+        for j, ing in ipairs(recipe.ingredients) do
+            desc = desc .. ing.amount .. 'x ' .. ing.label
+            if j < #recipe.ingredients then desc = desc .. ', ' end
+        end
+        options[#options + 1] = {
+            title    = recipe.icon .. '  ' .. recipe.label,
+            description = desc,
+            onSelect = function()
+                lib.callback('fcrp_tuner:server:craftItem', false, function(result, reason)
+                    if not result then
+                        Notify(reason or 'Crafting failed.', 'error', 4000)
+                        return
+                    end
+                    local ok = lib.progressBar({
+                        duration     = recipe.craftMs,
+                        label        = 'Crafting ' .. recipe.label .. '...',
+                        useWhileDead = false,
+                        canCancel    = true,
+                        disable      = { move = true, car = true, combat = true },
+                        anim         = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+                    })
+                    if not ok then
+                        TriggerServerEvent('fcrp_tuner:server:craftCancel', i)
+                        return
+                    end
+                    TriggerServerEvent('fcrp_tuner:server:craftComplete', i)
+                    Notify('✅ ' .. recipe.label .. ' crafted!', 'success', 4000)
+                end, i)
+            end,
+        }
+    end
+
+    lib.registerContext({
+        id      = 'fcrp_tuner_craft',
+        title   = '🛠️ Craft Items',
+        options = options,
+    })
+    lib.showContext('fcrp_tuner_craft')
+end
+
+-- ─────────────────────────────────────────────
+--  REMOVE MENU
+-- ─────────────────────────────────────────────
+
+local function OpenRemoveMenu(veh, state)
+    local items = {}
+    items[#items + 1] = { type = 'section', label = 'Remove Mods' }
+
+    if state.engine_chip then
+        items[#items + 1] = { icon = '🔧', name = 'Remove Engine Chip',  desc = 'Uninstall the engine speed chip',    action = 'remove_engine_chip' }
+    end
+    if state.drift_chip then
+        items[#items + 1] = { icon = '🚗', name = 'Remove Drift Chip',   desc = 'Uninstall the drift handling chip',  action = 'remove_drift_chip'  }
+    end
+    if state.nos then
+        items[#items + 1] = { icon = '🚀', name = 'Remove NOS Kit',      desc = 'Uninstall the nitrous kit',         action = 'remove_nos'         }
+    end
+    if state.neon_mode then
+        items[#items + 1] = { icon = '💡', name = 'Remove Neon',         desc = 'Turn off and remove neon lighting', action = 'remove_neon'        }
+    end
+    if state.has_stance then
+        items[#items + 1] = { icon = '📐', name = 'Remove Stance Kit',   desc = 'Reset camber and ride height',      action = 'remove_stance'      }
+    end
+    if state.has_exhaust then
+        items[#items + 1] = { icon = '💨', name = 'Remove Exhaust Mod',  desc = 'Remove anti-lag backfire mod',      action = 'remove_exhaust'     }
+    end
+
+    if #items <= 1 then
+        Notify('No mods installed on this vehicle.', 'inform', 3000)
+        return
+    end
+
+    _currentMenuVeh   = veh
+    _currentMenuState = state
+    UI_OpenShop(items, '')
 end
 
 -- ─────────────────────────────────────────────
@@ -226,12 +277,13 @@ _currentMenuState = nil
 --  BUILD SHOP ITEMS
 -- ─────────────────────────────────────────────
 
-local function BuildShopItems(veh, state, isTuner, enginePrice, driftPrice)
+local function BuildShopItems(veh, state, isTuner, grade, enginePrice, driftPrice)
+    local gradeConfig = GetGradeConfig(grade)
     local items = {}
 
+    -- ── PERFORMANCE ──────────────────────────
     items[#items + 1] = { type = 'section', label = 'Performance' }
 
-    -- Engine Chip
     if state.engine_chip then
         items[#items + 1] = { icon = '🔧', name = 'Engine Chip', desc = 'Already installed · PD /removechip required', installed = true }
     elseif state.drift_chip then
@@ -239,13 +291,12 @@ local function BuildShopItems(veh, state, isTuner, enginePrice, driftPrice)
     else
         local ep = enginePrice or Config.EngineChip.basePrice
         items[#items + 1] = {
-            icon = '🔧', name = 'Engine Chip  (+' .. Config.EngineChip.speedBoostPercent .. '% top speed)',
-            desc = 'Base $' .. Config.EngineChip.basePrice .. ' + 30% car value · dirty cash' .. (not isTuner and '  🔒 Tuner required' or ''),
+            icon = '🔧', name = 'Engine Chip',
+            desc = '+' .. Config.EngineChip.speedBoostPercent .. '% top speed · dirty cash' .. (not isTuner and '  🔒 Tuner required' or ''),
             price = ep, action = 'buy_engine_chip', disabled = not isTuner,
         }
     end
 
-    -- Drift Chip
     if state.drift_chip then
         items[#items + 1] = { icon = '🚗', name = 'Drift Chip', desc = 'Soft suspension + high traction loss', installed = true }
     elseif state.engine_chip then
@@ -254,36 +305,48 @@ local function BuildShopItems(veh, state, isTuner, enginePrice, driftPrice)
         local dp = driftPrice or Config.DriftChip.basePrice
         items[#items + 1] = {
             icon = '🚗', name = 'Drift Chip',
-            desc = 'Base $' .. Config.DriftChip.basePrice .. ' + 20% car value · dirty cash' .. (not isTuner and '  🔒 Tuner required' or ''),
+            desc = 'Soft suspension + high traction loss · dirty cash' .. (not isTuner and '  🔒 Tuner required' or ''),
             price = dp, action = 'buy_drift_chip', disabled = not isTuner,
         }
     end
 
-    -- Stance Kit
     if state.has_stance then
         items[#items + 1] = { icon = '📐', name = 'Stance Kit', desc = 'Already installed', installed = true }
     else
         items[#items + 1] = {
-            icon = '📐', name = 'Stance Kit  ($' .. lib.math.groupdigits(Config.StanceKit.price) .. ')',
+            icon = '📐', name = 'Stance Kit',
             desc = 'Camber · ride height · wheel distance' .. (not isTuner and '  🔒 Tuner required' or ''),
             price = Config.StanceKit.price, action = 'buy_stance_kit', disabled = not isTuner,
         }
     end
 
-    -- Nitrous
+    -- ── EXHAUST ───────────────────────────────
+    items[#items + 1] = { type = 'section', label = 'Exhaust' }
+
+    if state.has_exhaust then
+        items[#items + 1] = { icon = '💨', name = 'Exhaust Mod', desc = 'Anti-lag backfire active 🔥', installed = true }
+    else
+        items[#items + 1] = {
+            icon = '💨', name = 'Exhaust Mod',
+            desc = 'Anti-lag backfire flames on throttle lift' .. (not isTuner and '  🔒 Tuner required' or ''),
+            price = Config.ExhaustMod.price, action = 'buy_exhaust_mod', disabled = not isTuner,
+        }
+    end
+
+    -- ── NITROUS ───────────────────────────────
     items[#items + 1] = { type = 'section', label = 'Nitrous' }
 
     if state.nos then
-        items[#items + 1] = { icon = '🚀', name = 'Nitrous Kit  (installed)', desc = 'Refill at NOS station · LEFT SHIFT to activate', installed = true }
+        items[#items + 1] = { icon = '🚀', name = 'Nitrous Kit  (installed)', desc = 'Use nos_canister item to refill · LEFT SHIFT to activate', installed = true }
     else
         items[#items + 1] = {
-            icon = '🚀', name = 'Install Nitrous Kit  ($' .. lib.math.groupdigits(Config.Nitrous.price) .. ')',
-            desc = '+' .. Config.Nitrous.boostMPH .. ' MPH · ' .. Config.Nitrous.boostDuration .. 's burst · refill at station' .. (not isTuner and '  🔒 Tuner required' or ''),
+            icon = '🚀', name = 'Install Nitrous Kit',
+            desc = '+' .. Config.Nitrous.boostMPH .. ' MPH · ' .. Config.Nitrous.boostDuration .. 's burst · refill with NOS Canister item' .. (not isTuner and '  🔒 Tuner required' or ''),
             price = Config.Nitrous.price, action = 'buy_nitrous_kit', disabled = not isTuner,
         }
     end
 
-    -- Neon
+    -- ── NEON ──────────────────────────────────
     items[#items + 1] = { type = 'section', label = 'Neon Kits' }
 
     local neonLock = not isTuner and '  🔒 Tuner required' or ''
@@ -295,66 +358,73 @@ local function BuildShopItems(veh, state, isTuner, enginePrice, driftPrice)
     }
     for _, n in ipairs(neonDefs) do
         items[#items + 1] = {
-            icon = n.icon, name = n.name .. '  ($' .. lib.math.groupdigits(n.price) .. ')' .. neonLock,
+            icon = n.icon, name = n.name .. neonLock,
             desc = 'Neon lighting · dirty cash',
             price = n.price, action = 'buy_neon', actionData = { key = n.key },
             disabled = not isTuner,
         }
     end
 
-    -- Management
+    -- ── MANAGEMENT ────────────────────────────
     items[#items + 1] = { type = 'section', label = 'Management' }
+
     items[#items + 1] = {
         icon = '🗑️', name = 'Remove Mods',
         desc = 'Uninstall any mod from this vehicle',
-        action = 'open_remove_menu',
-        disabled = not isTuner,
+        action = 'open_remove_menu', disabled = not isTuner,
     }
+
+    if isTuner and gradeConfig.canCraft then
+        items[#items + 1] = {
+            icon = '🛠️', name = 'Craft Items',
+            desc = 'Craft chips, rods and canisters  (' .. (gradeConfig.label) .. ')',
+            action = 'open_craft_menu',
+        }
+    end
+
+    if isTuner and gradeConfig.isOwner then
+        items[#items + 1] = {
+            icon = '💰', name = 'Society Stash',
+            desc = 'Access the tuner society funds',
+            action = 'open_society_stash',
+        }
+    end
 
     return items
 end
 
-local function OpenMenu(veh, state)
-    _currentMenuVeh   = veh
-    _currentMenuState = state
+-- ─────────────────────────────────────────────
+--  RAMP ZONE  — background prefetch, instant menu
+-- ─────────────────────────────────────────────
+
+local inRamp    = false
+local menuOpen  = false
+
+-- Per-zone prefetch cache
+local _cachedState       = nil
+local _cachedEnginePrice = nil
+local _cachedDriftPrice  = nil
+
+local function PrefetchState(veh)
     local netId = NetworkGetNetworkIdFromEntity(veh)
-
-    if not state.engine_chip and not state.drift_chip then
-        lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(enginePrice)
-            lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(driftPrice)
-                local items = BuildShopItems(veh, state, true, enginePrice, driftPrice)
-                UI_OpenShop(items, 'Tuner Shop')
+    lib.callback('fcrp_tuner:server:getVehicleState', false, function(state)
+        if not state then return end
+        _cachedState = state
+        if not state.engine_chip and not state.drift_chip then
+            lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(ep)
+                _cachedEnginePrice = ep
+                lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(dp)
+                    _cachedDriftPrice = dp
+                end, netId)
             end, netId)
-        end, netId)
-    else
-        local items = BuildShopItems(veh, state, true, nil, nil)
-        UI_OpenShop(items, 'Tuner Shop')
-    end
+        end
+    end, netId)
 end
-
--- ─────────────────────────────────────────────
---  RAMP MENU
--- ─────────────────────────────────────────────
-
-local function OpenRampMenu(veh, state, enginePrice, driftPrice)
-    _currentMenuVeh   = veh
-    _currentMenuState = state
-    local isTuner = HasTunerJob()
-    local items   = BuildShopItems(veh, state, isTuner, enginePrice, driftPrice)
-    UI_OpenShop(items, isTuner and 'Tuner Ramp' or 'Tuner Ramp  🔒 View Only')
-end
-
--- ─────────────────────────────────────────────
---  RAMP ZONES
--- ─────────────────────────────────────────────
-
-local inRamp   = false
-local menuOpen = false
 
 for _, rampCoords in ipairs(Config.RampLocations) do
     lib.zones.sphere({
-        coords = rampCoords,
-        radius = Config.RampRadius,
+        coords  = rampCoords,
+        radius  = Config.RampRadius,
         onEnter = function()
             local veh = GetDrivenVehicle()
             if not veh then
@@ -362,6 +432,9 @@ for _, rampCoords in ipairs(Config.RampLocations) do
                 return
             end
             inRamp = true
+
+            -- Start background prefetch immediately
+            PrefetchState(veh)
 
             CreateThread(function()
                 while inRamp do
@@ -371,22 +444,40 @@ for _, rampCoords in ipairs(Config.RampLocations) do
                             Notify(Lang:t('ramp_no_vehicle'), 'error', 3000)
                         else
                             menuOpen = true
-                            local netId = NetworkGetNetworkIdFromEntity(v)
-                            lib.callback('fcrp_tuner:server:getVehicleState', false, function(state)
-                                if not state then menuOpen = false return end
+                            local isTuner = HasTunerJob()
+                            local grade   = isTuner and GetPlayerGrade() or 0
 
-                                if not state.engine_chip and not state.drift_chip then
-                                    lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(enginePrice)
-                                        lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(driftPrice)
-                                            menuOpen = false
-                                            OpenRampMenu(v, state, enginePrice, driftPrice)
+                            if _cachedState then
+                                -- Instant open — data already cached
+                                _currentMenuVeh   = v
+                                _currentMenuState = _cachedState
+                                local items = BuildShopItems(v, _cachedState, isTuner, grade, _cachedEnginePrice, _cachedDriftPrice)
+                                UI_OpenShop(items, '')
+                                menuOpen = false
+                            else
+                                -- Cache miss — live fetch (first press before prefetch finished)
+                                local netId = NetworkGetNetworkIdFromEntity(v)
+                                lib.callback('fcrp_tuner:server:getVehicleState', false, function(state)
+                                    if not state then menuOpen = false return end
+                                    if not state.engine_chip and not state.drift_chip then
+                                        lib.callback('fcrp_tuner:server:getEngineChipPrice', false, function(ep)
+                                            lib.callback('fcrp_tuner:server:getDriftChipPrice', false, function(dp)
+                                                menuOpen = false
+                                                _currentMenuVeh   = v
+                                                _currentMenuState = state
+                                                local items = BuildShopItems(v, state, isTuner, grade, ep, dp)
+                                                UI_OpenShop(items, '')
+                                            end, netId)
                                         end, netId)
-                                    end, netId)
-                                else
-                                    menuOpen = false
-                                    OpenRampMenu(v, state, nil, nil)
-                                end
-                            end, netId)
+                                    else
+                                        menuOpen = false
+                                        _currentMenuVeh   = v
+                                        _currentMenuState = state
+                                        local items = BuildShopItems(v, state, isTuner, grade, nil, nil)
+                                        UI_OpenShop(items, '')
+                                    end
+                                end, netId)
+                            end
                         end
                     end
                     Wait(0)
@@ -394,8 +485,11 @@ for _, rampCoords in ipairs(Config.RampLocations) do
             end)
         end,
         onExit = function()
-            inRamp   = false
-            menuOpen = false
+            inRamp            = false
+            menuOpen          = false
+            _cachedState      = nil
+            _cachedEnginePrice = nil
+            _cachedDriftPrice  = nil
         end,
     })
 end
@@ -415,14 +509,19 @@ RegisterNetEvent('fcrp_tuner:client:shopAction', function(action, data)
     UI_CloseShop()
 
     if action == 'buy_engine_chip' then
-        BuyEngineChip(veh)
+        BuyEngineChip(veh, _cachedEnginePrice)
 
     elseif action == 'buy_drift_chip' then
-        BuyDriftChip(veh)
+        BuyDriftChip(veh, _cachedDriftPrice)
 
     elseif action == 'buy_stance_kit' then
         GetPassengerThenPurchase(veh, 'stance_kit', Config.StanceKit.installMs, 'Stance Kit', function(v)
             TriggerEvent('fcrp_tuner:client:openStance', v)
+        end)
+
+    elseif action == 'buy_exhaust_mod' then
+        GetPassengerThenPurchase(veh, 'exhaust_mod', Config.ExhaustMod.installMs, 'Exhaust Mod', function(v)
+            TriggerEvent('fcrp_tuner:client:exhaustInstalled', v)
         end)
 
     elseif action == 'buy_nitrous_kit' then
@@ -446,12 +545,16 @@ RegisterNetEvent('fcrp_tuner:client:shopAction', function(action, data)
     elseif action == 'open_remove_menu' then
         local netId = NetworkGetNetworkIdFromEntity(veh)
         lib.callback('fcrp_tuner:server:getVehicleState', false, function(freshState)
-            if freshState then
-                OpenRemoveMenu(veh, freshState)
-            end
+            if freshState then OpenRemoveMenu(veh, freshState) end
         end, netId)
 
-    -- ── Remove actions ─────────────────────
+    elseif action == 'open_craft_menu' then
+        OpenCraftMenu()
+
+    elseif action == 'open_society_stash' then
+        TriggerServerEvent('fcrp_tuner:server:openSocietyStash')
+
+    -- ── Remove actions ──────────────────────
     elseif action == 'remove_engine_chip' then
         CreateThread(function()
             local ok = lib.progressBar({ duration = Config.EngineChip.removeMs, label = 'Removing Engine Chip...', useWhileDead = false, canCancel = true, disable = { move = true, car = true, combat = true }, anim = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 } })
@@ -512,38 +615,26 @@ RegisterNetEvent('fcrp_tuner:client:shopAction', function(action, data)
                 Notify(Lang:t('stance_removed'), 'success', 4000)
             end, netId, 'stance')
         end)
+
+    elseif action == 'remove_exhaust' then
+        CreateThread(function()
+            local ok = lib.progressBar({ duration = Config.ExhaustMod.removeMs, label = 'Removing Exhaust Mod...', useWhileDead = false, canCancel = true, disable = { move = true, car = true, combat = true }, anim = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 } })
+            if not ok then return end
+            local netId = NetworkGetNetworkIdFromEntity(veh)
+            lib.callback('fcrp_tuner:server:removeMod', false, function(result, reason)
+                if not result then Notify(reason, 'error', 4000) return end
+                TriggerEvent('fcrp_tuner:client:exhaustRemoved', veh)
+                Notify('Exhaust mod removed.', 'success', 4000)
+            end, netId, 'exhaust')
+        end)
     end
 end)
 
 -- ─────────────────────────────────────────────
---  REAPPLY MODS ON LOAD / VEHICLE ENTER
+--  REAPPLY MODS  — fixed: waits for network control
 -- ─────────────────────────────────────────────
 
-AddEventHandler('qbx_core:playerLoaded', function()
-    Wait(5000)
-    local veh = GetDrivenVehicle()
-    if veh then
-        TriggerEvent('fcrp_tuner:client:reapplyMods', veh)
-    end
-end)
-
-CreateThread(function()
-    local lastVeh = 0
-    while true do
-        Wait(1000)
-        local ped = PlayerPedId()
-        local veh = GetVehiclePedIsIn(ped, false)
-        if veh ~= 0 and veh ~= lastVeh then
-            lastVeh = veh
-            Wait(1000)
-            TriggerEvent('fcrp_tuner:client:reapplyMods', veh)
-        elseif veh == 0 then
-            lastVeh = 0
-        end
-    end
-end)
-
-RegisterNetEvent('fcrp_tuner:client:reapplyMods', function(veh)
+local function ReapplyMods(veh)
     if not veh or not DoesEntityExist(veh) then return end
     local netId = NetworkGetNetworkIdFromEntity(veh)
     lib.callback('fcrp_tuner:server:getVehicleState', false, function(state)
@@ -557,14 +648,10 @@ RegisterNetEvent('fcrp_tuner:client:reapplyMods', function(veh)
             SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', cur * (1.0 + Config.EngineChip.speedBoostPercent / 100.0))
         end
 
-        if state.drift_chip then
-            ApplyDriftChip(veh)
-        end
+        if state.drift_chip then ApplyDriftChip(veh) end
 
         if state.nos then
-            local cooldownUntil = state.nos_cooldown_until or 0
-            local isEmpty       = state.nos_empty or false
-            TriggerEvent('fcrp_tuner:client:nosInstalled', veh, true, cooldownUntil, isEmpty)
+            TriggerEvent('fcrp_tuner:client:nosInstalled', veh, true, state.nos_cooldown_until or 0, state.nos_empty or false)
         end
 
         if state.neon_mode then
@@ -580,18 +667,51 @@ RegisterNetEvent('fcrp_tuner:client:reapplyMods', function(veh)
         if state.has_stance and state.stance then
             TriggerEvent('fcrp_tuner:client:applyStance', veh, state.stance.camber, state.stance.height, state.stance.wheeldist)
         end
+
+        if state.has_exhaust then
+            TriggerEvent('fcrp_tuner:client:exhaustInstalled', veh, true)
+        end
     end, netId)
+end
+
+-- Player loaded
+AddEventHandler('qbx_core:playerLoaded', function()
+    Wait(5000)
+    local veh = GetDrivenVehicle()
+    if veh then ReapplyMods(veh) end
+end)
+
+-- Vehicle entry — fixed: waits for NetworkHasControlOfEntity before reapplying
+CreateThread(function()
+    local lastVeh = 0
+    while true do
+        Wait(500)
+        local ped = PlayerPedId()
+        local veh = GetVehiclePedIsIn(ped, false)
+        if veh ~= 0 and veh ~= lastVeh then
+            -- Wait until we have network control (max 3s)
+            local timeout = 0
+            while not NetworkHasControlOfEntity(veh) and timeout < 3000 do
+                Wait(100)
+                timeout = timeout + 100
+            end
+            lastVeh = veh
+            ReapplyMods(veh)
+        elseif veh == 0 then
+            lastVeh = 0
+        end
+    end
 end)
 
 -- ─────────────────────────────────────────────
---  /checkchip  CLIENT SIDE
+--  PD CHIP COMMANDS
 -- ─────────────────────────────────────────────
 
 RegisterNetEvent('fcrp_tuner:client:checkChip', function()
     local ped = PlayerPedId()
     local veh = GetVehiclePedIsIn(ped, false)
     if not veh or veh == 0 then
-        Notify('You must be sitting inside a vehicle to check its chip.', 'error', 3000)
+        Notify('You must be in a vehicle.', 'error', 3000)
         return
     end
     TriggerServerEvent('fcrp_tuner:server:checkChip', NetworkGetNetworkIdFromEntity(veh))
@@ -605,8 +725,7 @@ RegisterNetEvent('fcrp_tuner:client:pdRemoveChipRequest', function()
         Notify('No vehicle nearby.', 'error', 3000)
         return
     end
-    local netId = NetworkGetNetworkIdFromEntity(veh)
-    TriggerServerEvent('fcrp_tuner:server:pdRemoveChip', netId)
+    TriggerServerEvent('fcrp_tuner:server:pdRemoveChip', NetworkGetNetworkIdFromEntity(veh))
 end)
 
 RegisterNetEvent('fcrp_tuner:client:engineChipRemoved', function(netId)
@@ -614,4 +733,9 @@ RegisterNetEvent('fcrp_tuner:client:engineChipRemoved', function(netId)
     if not veh or not DoesEntityExist(veh) then return end
     local cur = GetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel')
     SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', math.max(10.0, cur / (1.0 + Config.EngineChip.speedBoostPercent / 100.0)))
+end)
+
+-- Society stash — server tells client to open ox_inventory stash
+RegisterNetEvent('fcrp_tuner:client:openSocietyStash', function()
+    exports.ox_inventory:openInventory('stash', 'fcrp_tuner_society')
 end)

@@ -17,7 +17,7 @@ end
 
 function UI_OpenShop(items, subtitle)
     SetNuiFocus(true, true)
-    Send('openShop', { items = items, subtitle = subtitle or 'Select a service' })
+    Send('openShop', { items = items, subtitle = '' })
 end
 
 function UI_CloseShop()

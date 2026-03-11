@@ -3,7 +3,7 @@ game 'gta5'
 
 author 'FCRP'
 description 'Qbox Illegal Tuner Shop'
-version '1.0.0'
+version '2.0.0'
 
 ui_page 'html/index.html'
 
@@ -23,6 +23,7 @@ client_scripts {
     'client/stance.lua',
     'client/nitrous.lua',
     'client/neon.lua',
+    'client/exhaust.lua',
 }
 
 server_scripts {

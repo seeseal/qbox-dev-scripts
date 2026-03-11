@@ -1,0 +1,50 @@
+-- ══════════════════════════════════════════════════════════════
+--  fcrp_tuner  |  tuner.sql
+--  Run this once in your database to set up all required tables.
+-- ══════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────
+--  VEHICLE MODS TABLE
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS `fcrp_tuner_mods` (
+    `plate`              VARCHAR(15)  NOT NULL,
+    `engine_chip`        TINYINT(1)   NOT NULL DEFAULT 0,
+    `drift_chip`         TINYINT(1)   NOT NULL DEFAULT 0,
+    `nos`                TINYINT(1)   NOT NULL DEFAULT 0,
+    `nos_empty`          TINYINT(1)   NOT NULL DEFAULT 0,
+    `nos_cooldown_until` BIGINT       NOT NULL DEFAULT 0,
+    `neon_mode`          VARCHAR(16)  DEFAULT NULL COMMENT 'static | rainbow | rgb | strobe',
+    `neon_r`             SMALLINT     DEFAULT NULL,
+    `neon_g`             SMALLINT     DEFAULT NULL,
+    `neon_b`             SMALLINT     DEFAULT NULL,
+    `stance_camber`      FLOAT        DEFAULT NULL,
+    `stance_height`      FLOAT        DEFAULT NULL,
+    `stance_wheeldist`   FLOAT        DEFAULT NULL,
+    `has_exhaust`        TINYINT(1)   NOT NULL DEFAULT 0,
+    PRIMARY KEY (`plate`),
+    INDEX `idx_engine_chip` (`engine_chip`),
+    INDEX `idx_drift_chip`  (`drift_chip`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='fcrp_tuner — per-vehicle mod state, persisted across reconnects';
+
+
+-- ─────────────────────────────────────────────
+--  OX_INVENTORY ITEMS
+--  Add these to your ox_inventory items.lua / items folder
+--  if they are not already defined.
+--
+--  The INSERT IGNORE below adds them to the standard
+--  ox_inventory `items` table used by some server setups.
+--  If your setup uses flat-file items, add them manually.
+-- ─────────────────────────────────────────────
+
+INSERT IGNORE INTO `items` (`name`, `label`, `weight`, `stack`, `close`, `description`) VALUES
+    ('s3_chip',           'S3 Engine Chip',   500,  false, true,  'An illegal performance chip that boosts top speed by 15%.'),
+    ('drift_chip',        'Drift Chip',        500,  false, true,  'Reduces traction and makes wheels spin more freely.'),
+    ('stance_rod',        'Stance Rod',        800,  false, true,  'Adjustable suspension rod used to tune camber and ride height.'),
+    ('nos_canister',      'NOS Canister',      1200, false, true,  'Pressurised nitrous oxide. Use while in a vehicle to refill the NOS kit.'),
+    ('electronic_parts',  'Electronic Parts',  300,  true,  false, 'Various electronic components used in chip crafting.'),
+    ('metal_scrap',       'Metal Scrap',       600,  true,  false, 'Salvaged metal pieces used in fabrication.'),
+    ('rubber',            'Rubber',            400,  true,  false, 'High-grade rubber used in drift chip assembly.'),
+    ('compressed_gas',    'Compressed Gas',    900,  true,  false, 'Pressurised gas cylinder used to fill NOS canisters.');
