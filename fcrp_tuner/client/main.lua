@@ -264,8 +264,8 @@ end
 --  SHARED MENU STATE
 -- ─────────────────────────────────────────────
 
-_currentMenuVeh   = nil
-_currentMenuState = nil
+local _currentMenuVeh   = nil
+local _currentMenuState = nil
 
 -- ─────────────────────────────────────────────
 --  BUILD SHOP ITEMS
@@ -393,6 +393,10 @@ for _, rampCoords in ipairs(Config.RampLocations) do
                 return
             end
             inRamp = true
+            -- Report vehicle value so server can compute chip price bonuses
+            local netId = NetworkGetNetworkIdFromEntity(veh)
+            local value = GetVehicleValue(veh)
+            TriggerServerEvent('fcrp_tuner:server:setVehicleValue', netId, value)
             PrefetchState(veh)
 
             CreateThread(function()
@@ -761,7 +765,7 @@ RegisterNetEvent('fcrp_tuner:client:startSupplyRun', function(coords, reward)
                             RemoveBlip(blip)
                             supplyRunActive = false
                             inZone          = false
-                            TriggerServerEvent('fcrp_tuner:server:completeSupplyRun', reward)
+                            TriggerServerEvent('fcrp_tuner:server:completeSupplyRun')
                         else
                             Notify('Collection cancelled.', 'error', 2000)
                         end

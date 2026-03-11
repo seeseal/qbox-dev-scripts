@@ -163,12 +163,18 @@ end)
 local function StartNOSThread(veh)
     nosThread = nil
     UI_ShowNos(true)
+    local hudTick = 0
     nosThread = CreateThread(function()
         while nosInstalled do
-            Wait(500)
+            Wait(0)
+            hudTick = hudTick + 1
+            if hudTick >= 30 then   -- update HUD ~2× per second
+                hudTick = 0
+                UpdateNOSHud()
+            end
+
             local ped    = PlayerPedId()
             local curVeh = GetVehiclePedIsIn(ped, false)
-            UpdateNOSHud()
 
             if curVeh ~= 0 and curVeh == nosVehicle and GetPedInVehicleSeat(nosVehicle, -1) == ped then
                 if IsControlJustPressed(0, Config.Nitrous.key) then
@@ -196,6 +202,11 @@ end
 
 -- pressure arg replaces the old isEmpty bool
 AddEventHandler('fcrp_tuner:client:nosInstalled', function(veh, silent, cooldownUntil, pressure)
+    -- Kill any existing thread before restarting (prevents double-thread on vehicle swap)
+    if nosInstalled then
+        nosInstalled = false
+        Wait(0)
+    end
     nosInstalled     = true
     nosVehicle       = veh
     nosActive        = false

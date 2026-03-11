@@ -40,6 +40,7 @@ MySQL.ready(function()
             `stance_wheeldist`   FLOAT        DEFAULT NULL,
             `has_exhaust`        TINYINT(1)   NOT NULL DEFAULT 0,
             `fake_plate`         VARCHAR(15)  DEFAULT NULL,
+            `vehicle_value`      INT          NOT NULL DEFAULT 0,
             PRIMARY KEY (`plate`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
@@ -47,6 +48,7 @@ MySQL.ready(function()
     -- Add new columns to existing installs (safe on fresh installs too)
     MySQL.query("ALTER TABLE `fcrp_tuner_mods` ADD COLUMN IF NOT EXISTS `nos_pressure` FLOAT NOT NULL DEFAULT 1.0 AFTER `nos`")
     MySQL.query("ALTER TABLE `fcrp_tuner_mods` ADD COLUMN IF NOT EXISTS `fake_plate` VARCHAR(15) DEFAULT NULL")
+    MySQL.query("ALTER TABLE `fcrp_tuner_mods` ADD COLUMN IF NOT EXISTS `vehicle_value` INT NOT NULL DEFAULT 0")
 
     -- Load fake plate cache from DB
     local rows = MySQL.query.await('SELECT plate, fake_plate FROM fcrp_tuner_mods WHERE fake_plate IS NOT NULL')
@@ -200,17 +202,32 @@ end)
 -- ─────────────────────────────────────────────
 
 lib.callback.register('fcrp_tuner:server:getEngineChipPrice', function(src, netId)
-    local plate    = GetPlate(netId)
-    local stored   = plate and GetResourceKvpFloat('depot_' .. plate) or 0
-    local bonus    = math.floor(stored * Config.EngineChip.carValuePercent)
+    local plate  = GetPlate(netId)
+    local row    = plate and MySQL.single.await('SELECT vehicle_value FROM fcrp_tuner_mods WHERE plate = ?', { plate }) or nil
+    local stored = (row and row.vehicle_value) or 0
+    local bonus  = math.floor(stored * Config.EngineChip.carValuePercent)
     return Config.EngineChip.basePrice + bonus, stored, bonus
 end)
 
 lib.callback.register('fcrp_tuner:server:getDriftChipPrice', function(src, netId)
-    local plate    = GetPlate(netId)
-    local stored   = plate and GetResourceKvpFloat('depot_' .. plate) or 0
-    local bonus    = math.floor(stored * Config.DriftChip.carValuePercent)
+    local plate  = GetPlate(netId)
+    local row    = plate and MySQL.single.await('SELECT vehicle_value FROM fcrp_tuner_mods WHERE plate = ?', { plate }) or nil
+    local stored = (row and row.vehicle_value) or 0
+    local bonus  = math.floor(stored * Config.DriftChip.carValuePercent)
     return Config.DriftChip.basePrice + bonus, stored, bonus
+end)
+
+-- ─────────────────────────────────────────────
+--  VEHICLE VALUE  (sent by client on ramp entry)
+--  Client reads GetVehicleValue() and reports it so server can
+--  compute chip price bonuses without needing KVP natives.
+-- ─────────────────────────────────────────────
+
+RegisterNetEvent('fcrp_tuner:server:setVehicleValue', function(netId, value)
+    local plate = GetPlate(netId)
+    if not plate then return end
+    local safeValue = math.max(0, math.min(10000000, math.floor(tonumber(value) or 0)))
+    MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, vehicle_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE vehicle_value = ?', { plate, safeValue, safeValue })
 end)
 
 -- ─────────────────────────────────────────────
@@ -254,21 +271,21 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
     local price = 0
 
     if productKey == 'engine_chip' then
-        local stored = GetResourceKvpFloat('depot_' .. plate) or 0
+        local vrow   = MySQL.single.await('SELECT drift_chip, engine_chip, vehicle_value FROM fcrp_tuner_mods WHERE plate = ?', { plate })
+        local stored = (vrow and vrow.vehicle_value) or 0
         price = Config.EngineChip.basePrice + math.floor(stored * Config.EngineChip.carValuePercent)
-        local row = MySQL.single.await('SELECT drift_chip, engine_chip FROM fcrp_tuner_mods WHERE plate = ?', { plate })
-        if row and row.drift_chip  == 1 then return false, 'Remove drift chip first.' end
-        if row and row.engine_chip == 1 then return false, 'Engine chip already installed.' end
+        if vrow and vrow.drift_chip  == 1 then return false, 'Remove drift chip first.' end
+        if vrow and vrow.engine_chip == 1 then return false, 'Engine chip already installed.' end
         local hasChip = exports.ox_inventory:GetItemCount(payerSrc, 's3_chip')
         if not hasChip or hasChip < 1 then return false, 'Requires 1x S3 Chip item.' end
         exports.ox_inventory:RemoveItem(payerSrc, 's3_chip', 1)
 
     elseif productKey == 'drift_chip' then
-        local stored = GetResourceKvpFloat('depot_' .. plate) or 0
+        local vrow   = MySQL.single.await('SELECT engine_chip, drift_chip, vehicle_value FROM fcrp_tuner_mods WHERE plate = ?', { plate })
+        local stored = (vrow and vrow.vehicle_value) or 0
         price = Config.DriftChip.basePrice + math.floor(stored * Config.DriftChip.carValuePercent)
-        local row = MySQL.single.await('SELECT engine_chip, drift_chip FROM fcrp_tuner_mods WHERE plate = ?', { plate })
-        if row and row.engine_chip == 1 then return false, 'Remove engine chip first.' end
-        if row and row.drift_chip  == 1 then return false, 'Drift chip already installed.' end
+        if vrow and vrow.engine_chip == 1 then return false, 'Remove engine chip first.' end
+        if vrow and vrow.drift_chip  == 1 then return false, 'Drift chip already installed.' end
         local hasDrift = exports.ox_inventory:GetItemCount(payerSrc, 'drift_chip')
         if not hasDrift or hasDrift < 1 then return false, 'Requires 1x Drift Chip item.' end
         exports.ox_inventory:RemoveItem(payerSrc, 'drift_chip', 1)
@@ -379,10 +396,10 @@ end)
 --  BUG FIX: renamed from saveNeonColour → saveNeon to match client/neon.lua
 -- ─────────────────────────────────────────────
 
-RegisterNetEvent('fcrp_tuner:server:saveNeon', function(netId, r, g, b)
+RegisterNetEvent('fcrp_tuner:server:saveNeon', function(netId, mode, r, g, b)
     local plate = GetPlate(netId)
     if not plate then return end
-    MySQL.query.await('UPDATE fcrp_tuner_mods SET neon_r = ?, neon_g = ?, neon_b = ? WHERE plate = ?', { r, g, b, plate })
+    MySQL.query.await('UPDATE fcrp_tuner_mods SET neon_mode = ?, neon_r = ?, neon_g = ?, neon_b = ? WHERE plate = ?', { mode, r, g, b, plate })
 end)
 
 -- ─────────────────────────────────────────────
@@ -589,23 +606,21 @@ lib.addCommand('supplyrun', {
     local loc    = Config.SupplyRun.Locations[math.random(#Config.SupplyRun.Locations)]
     local reward = math.random(Config.SupplyRun.rewardMin, Config.SupplyRun.rewardMax)
 
-    activeRunPlayers[cid] = true
+    activeRunPlayers[cid] = reward   -- store value, not just boolean
     TriggerClientEvent('fcrp_tuner:client:startSupplyRun', src, { x = loc.x, y = loc.y, z = loc.z }, reward)
     TriggerClientEvent('ox_lib:notify', src, { title = '🚚 Supply run dispatched! Follow the blip.', type = 'inform', duration = 5000 })
 end)
 
-RegisterNetEvent('fcrp_tuner:server:completeSupplyRun', function(reward)
+RegisterNetEvent('fcrp_tuner:server:completeSupplyRun', function()
     local src    = source
     local Player = GetPlayer(src)
     if not Player then return end
     local cid = Player.PlayerData.citizenid
 
-    if not activeRunPlayers[cid] then return end  -- no active run on record
+    if not activeRunPlayers[cid] then return end
+    local safeReward        = activeRunPlayers[cid]  -- use server-stored value
     activeRunPlayers[cid]   = nil
     supplyRunCooldowns[cid] = os.time()
-
-    -- Clamp reward to configured range (prevent client tampering)
-    local safeReward = math.max(Config.SupplyRun.rewardMin, math.min(Config.SupplyRun.rewardMax, reward))
     exports.ox_inventory:AddItem(src, 'damaged_parts', safeReward)
     TriggerClientEvent('ox_lib:notify', src, {
         title    = string.format('✅ Run complete! Collected %d damaged parts.', safeReward),
