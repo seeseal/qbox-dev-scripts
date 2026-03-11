@@ -48,3 +48,21 @@ INSERT IGNORE INTO `items` (`name`, `label`, `weight`, `stack`, `close`, `descri
     ('metal_scrap',       'Metal Scrap',       600,  true,  false, 'Salvaged metal pieces used in fabrication.'),
     ('rubber',            'Rubber',            400,  true,  false, 'High-grade rubber used in drift chip assembly.'),
     ('compressed_gas',    'Compressed Gas',    900,  true,  false, 'Pressurised gas cylinder used to fill NOS canisters.');
+
+-- ─────────────────────────────────────────────
+--  MIGRATION  (run once on existing installs)
+--  Safe to run multiple times — ADD COLUMN IF NOT EXISTS is idempotent.
+-- ─────────────────────────────────────────────
+
+ALTER TABLE `fcrp_tuner_mods`
+    ADD COLUMN IF NOT EXISTS `nos_pressure` FLOAT NOT NULL DEFAULT 1.0
+        COMMENT '0.0 = empty, 1.0 = full. Drains per activation, refilled by nos_canister item.',
+    ADD COLUMN IF NOT EXISTS `fake_plate`   VARCHAR(15) DEFAULT NULL
+        COMMENT 'Custom plate text displayed on the vehicle. NULL = real plate shown.';
+
+-- Seed pressure for any existing NOS installs (treat them as full)
+UPDATE `fcrp_tuner_mods` SET `nos_pressure` = 1.0 WHERE `nos` = 1 AND `nos_pressure` = 0;
+
+-- Insert damaged_parts into ox_inventory items table (if using DB-backed items)
+INSERT IGNORE INTO `items` (`name`, `label`, `weight`, `stack`, `close`, `description`) VALUES
+    ('damaged_parts', 'Damaged Parts', 500, true, false, 'Salvaged components from supply runs. Used to craft tuner chips and kits.');

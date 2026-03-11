@@ -21,10 +21,10 @@ local _strings = {
     stance_cancelled       = 'Stance changes cancelled.',
     stance_removed         = 'Stance kit removed.',
 
-    -- Nitrous
-    nos_installed          = 'Nitrous kit installed! Press LEFT SHIFT in a vehicle to activate.',
+    -- Nitrous (pressure system)
+    nos_installed          = 'Nitrous kit installed! Press LEFT SHIFT in your vehicle to activate.',
     nos_activated          = '🚀 NOS Activated!',
-    nos_empty              = 'NOS empty! Use a NOS Canister item to refill.',
+    nos_empty              = 'NOS tank empty! Use a NOS Canister item to refill.',
     nos_refilled           = '✅ NOS refilled!',
     nos_not_installed      = 'No NOS kit installed on this vehicle.',
     nos_removed            = 'NOS kit removed.',
@@ -36,6 +36,24 @@ local _strings = {
     -- Neon
     neon_installed         = 'Neon lighting installed!',
     neon_removed           = 'Neon lighting removed.',
+    neon_set               = '%s neon set to %s.',
+    neon_rainbow           = 'Rainbow neon activated!',
+    neon_strobe            = 'Strobe neon activated!',
+
+    -- Fake Plate
+    fake_plate_applied     = '🪪 Fake plate applied: %s',
+    fake_plate_removed     = 'Fake plate removed. Original plate restored.',
+
+    -- Supply Run
+    supply_run_started     = '🚚 Supply run dispatched! Follow the blip.',
+    supply_run_complete    = '✅ Run complete! Collected %d damaged parts.',
+    supply_run_cooldown    = 'Supply run on cooldown — %dm %ds remaining.',
+    supply_run_active      = 'You already have an active supply run in progress.',
+
+    -- Duty
+    duty_on                = '🔧 Now ON duty. Ramp zone is active.',
+    duty_off               = '🔧 Now OFF duty.',
+    duty_off_blocked       = 'You are off duty. Use /tunerduty to go on duty.',
 
     -- Craft
     craft_no_permission    = 'You need to be Tuner II or higher to craft.',

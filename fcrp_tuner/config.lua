@@ -10,7 +10,6 @@ Config.ProgressBar  = true
 
 -- ─────────────────────────────────────────────
 --  JOB GRADES
---  grade level matches the grade set in qbx_core jobs
 -- ─────────────────────────────────────────────
 Config.JobGrades = {
     [0] = { label = 'Tuner I',      commission = 0.20, canCraft = false, isOwner = false },
@@ -79,32 +78,46 @@ Config.StanceKit = {
 }
 
 -- ─────────────────────────────────────────────
---  NITROUS
---  Cooldown = activation cooldown only (5 min).
---  Refill is done with a nos_canister item — no station zone.
+--  NITROUS  (Pressure System)
+--  The tank is 0.0–1.0. Each activation drains pressureDrain.
+--  Each nos_canister item adds canisterRefill.
+--  minPressure is required to activate.
 -- ─────────────────────────────────────────────
 Config.Nitrous = {
-    price         = 50000,
-    installMs     = 9000,
-    removeMs      = 7000,
-    boostMPH      = 10,
-    boostDuration = 5,
-    cooldown      = 300,   -- 5 min activation cooldown
-    key           = 21,    -- LEFT SHIFT
+    price          = 50000,
+    installMs      = 9000,
+    removeMs       = 7000,
+    boostMPH       = 10,
+    boostDuration  = 5,
+    cooldown       = 300,        -- 5 min activation cooldown
+    key            = 21,         -- LEFT SHIFT
+    pressureDrain  = 0.35,       -- ~3 activations per full tank
+    canisterRefill = 0.30,       -- ~3-4 canisters to go empty → full
+    minPressure    = 0.10,       -- minimum pressure to be able to activate
 }
 
 -- ─────────────────────────────────────────────
 --  EXHAUST MOD
---  Anti-lag backfire flames on throttle lift at high RPM.
 -- ─────────────────────────────────────────────
 Config.ExhaustMod = {
     price          = 35000,
     installMs      = 5000,
     removeMs       = 4000,
-    rpmThreshold   = 0.82,  -- RPM fraction to arm backfire
-    throttleMax    = 0.04,  -- throttle below this = released
-    backfireChance = 0.55,  -- not every lift fires (0.0-1.0)
+    rpmThreshold   = 0.82,
+    throttleMax    = 0.04,
+    backfireChance = 0.55,
     backfireScale  = 2.5,
+}
+
+-- ─────────────────────────────────────────────
+--  FAKE PLATE
+--  Player picks custom plate text via input dialog.
+--  PD can use /scanplate near a vehicle to reveal the real one.
+-- ─────────────────────────────────────────────
+Config.FakePlate = {
+    price     = 75000,
+    installMs = 5000,
+    removeMs  = 3000,
 }
 
 -- ─────────────────────────────────────────────
@@ -132,7 +145,28 @@ Config.NeonColours = {
 }
 
 -- ─────────────────────────────────────────────
---  CRAFT RECIPES  (Tuner II + Master Tuner only)
+--  SUPPLY RUN
+--  On-duty tuners use /supplyrun to collect damaged_parts
+--  from a random location. These are the only crafting ingredient.
+-- ─────────────────────────────────────────────
+Config.SupplyRun = {
+    cooldown     = 900,       -- seconds cooldown between completed runs (15 min)
+    rewardMin    = 3,
+    rewardMax    = 6,
+    pickupRadius = 8.0,
+    collectMs    = 8000,
+    Locations    = {
+        vector3(616.08,   -2020.38,  30.02),  -- Banning docks
+        vector3(-1040.75, -2850.95,  14.17),  -- LSIA cargo bay
+        vector3(512.88,   -2300.17,  29.34),  -- Elysian Island
+        vector3(950.12,   -1600.87,  30.68),  -- La Mesa industrial
+        vector3(183.75,   -2647.42,   6.00),  -- Terminal
+        vector3(-270.95,  -2426.89,   6.00),  -- Port of LS
+    },
+}
+
+-- ─────────────────────────────────────────────
+--  CRAFT RECIPES  (damaged_parts only — from supply runs)
 -- ─────────────────────────────────────────────
 Config.CraftRecipes = {
     {
@@ -140,38 +174,27 @@ Config.CraftRecipes = {
         label       = 'S3 Engine Chip',
         icon        = '🔧',
         craftMs     = 12000,
-        ingredients = {
-            { item = 'electronic_parts', amount = 3, label = 'Electronic Parts' },
-            { item = 'metal_scrap',      amount = 2, label = 'Metal Scrap'       },
-        },
+        ingredients = { { item = 'damaged_parts', amount = 4, label = 'Damaged Parts' } },
     },
     {
         item        = 'drift_chip',
         label       = 'Drift Chip',
         icon        = '🚗',
         craftMs     = 10000,
-        ingredients = {
-            { item = 'electronic_parts', amount = 2, label = 'Electronic Parts' },
-            { item = 'rubber',           amount = 2, label = 'Rubber'            },
-        },
+        ingredients = { { item = 'damaged_parts', amount = 3, label = 'Damaged Parts' } },
     },
     {
         item        = 'stance_rod',
         label       = 'Stance Rod',
         icon        = '📐',
         craftMs     = 8000,
-        ingredients = {
-            { item = 'metal_scrap', amount = 3, label = 'Metal Scrap' },
-        },
+        ingredients = { { item = 'damaged_parts', amount = 2, label = 'Damaged Parts' } },
     },
     {
         item        = 'nos_canister',
         label       = 'NOS Canister',
         icon        = '🚀',
         craftMs     = 8000,
-        ingredients = {
-            { item = 'compressed_gas', amount = 2, label = 'Compressed Gas' },
-            { item = 'metal_scrap',    amount = 1, label = 'Metal Scrap'    },
-        },
+        ingredients = { { item = 'damaged_parts', amount = 2, label = 'Damaged Parts' } },
     },
 }

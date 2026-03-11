@@ -47,7 +47,19 @@
     -- TriggerClientEvent('fcrp_tuner:client:useNosCanister') is fired via ox_inventory:useItem
 },
 
--- ─── CRAFTING INGREDIENTS ─────────────────────────────────────
+-- ─── CRAFTING INGREDIENT (new — collected via supply run, used for all recipes) ──
+
+['damaged_parts'] = {
+    label       = 'Damaged Parts',
+    weight      = 500,
+    stack       = true,
+    close       = false,
+    description = 'Salvaged components collected during supply runs. Used to craft all tuner chips and kits.',
+    image       = 'damaged_parts',
+},
+
+-- ─── LEGACY INGREDIENTS (no longer required for crafting — safe to keep or remove) ──
+
 
 ['electronic_parts'] = {
     label       = 'Electronic Parts',

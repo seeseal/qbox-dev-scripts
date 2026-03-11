@@ -561,10 +561,11 @@ function updateNos(data) {
   bar.style.background = colors[data.state] || 'var(--green)';
   bar.style.width = Math.max(0, Math.min(100, (data.progress ?? 1) * 100)) + '%';
 
+  const pct = Math.round((data.progress ?? 1) * 100);
   const labels = {
-    ready:    ['CHARGED',   ''],
+    ready:    [pct + '%',   ''],
     active:   ['BURNING',   data.countdown || ''],
-    empty:    ['EMPTY',     'refill needed'],
+    empty:    ['0%',        'needs refill'],
     cooldown: ['COOLDOWN',  data.countdown || ''],
   };
   const statusText = {
@@ -578,7 +579,7 @@ function updateNos(data) {
   const hints = {
     ready:    `Press <span>L-SHIFT</span> to activate`,
     active:   `<span>NOS BURNING</span>`,
-    empty:    `Drive to <span>refill station</span>`,
+    empty:    `Use a <span>NOS Canister</span> item to refill`,
     cooldown: null,
   };
   const hintText = hints[data.state];

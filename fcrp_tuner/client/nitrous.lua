@@ -1,12 +1,13 @@
 -- ╔══════════════════════════════════════════════╗
 -- ║     fcrp_tuner  |  client/nitrous.lua       ║
+-- ║  Pressure system: 0.0–1.0 tank.             ║
+-- ║  Each activation drains Config.Nitrous.pressureDrain.  ║
+-- ║  Each nos_canister item refills canisterRefill.        ║
 -- ╚══════════════════════════════════════════════╝
--- Refill is now via nos_canister item — no station zone.
--- Cooldown reduced to 5 minutes (Config.Nitrous.cooldown).
 
 local nosInstalled     = false
 local nosActive        = false
-local nosEmpty         = false
+local nosPressure      = 1.0   -- 0.0 (empty) → 1.0 (full)
 local nosVehicle       = nil
 local nosThread        = nil
 local nosCountdown     = 0.0
@@ -33,6 +34,8 @@ local function FormatCooldown(secs)
     return m > 0 and string.format('%dm %ds', m, r) or string.format('%ds', r)
 end
 
+local function IsEmpty() return nosPressure < Config.Nitrous.minPressure end
+
 -- ─────────────────────────────────────────────
 --  HUD
 -- ─────────────────────────────────────────────
@@ -41,13 +44,16 @@ local function UpdateNOSHud()
     if not nosInstalled then return end
     local remaining = CooldownRemainingSec()
     if nosActive then
+        -- Bar shows burn countdown
         UI_UpdateNos('active', math.max(0.0, nosCountdown / Config.Nitrous.boostDuration), string.format('%.1fs', nosCountdown))
     elseif remaining > 0 then
+        -- Bar shows cooldown progress (drains down)
         UI_UpdateNos('cooldown', remaining / Config.Nitrous.cooldown, FormatCooldown(remaining))
-    elseif nosEmpty then
-        UI_UpdateNos('empty', 0, '')
+    elseif IsEmpty() then
+        UI_UpdateNos('empty', 0.0, '')
     else
-        UI_UpdateNos('ready', 1, '')
+        -- Bar shows tank pressure
+        UI_UpdateNos('ready', nosPressure, string.format('%d%%', math.floor(nosPressure * 100)))
     end
 end
 
@@ -56,7 +62,11 @@ end
 -- ─────────────────────────────────────────────
 
 local function ActivateNOS(veh)
-    if nosActive or nosEmpty then return end
+    if nosActive then return end
+    if IsEmpty() then
+        Notify('NOS tank empty — use a NOS Canister item to refill.', 'error', 3000)
+        return
+    end
     local remaining = CooldownRemainingSec()
     if remaining > 0 then
         Notify('⏳ NOS cooldown — ' .. FormatCooldown(remaining) .. ' remaining.', 'error', 3000)
@@ -65,6 +75,9 @@ local function ActivateNOS(veh)
 
     nosActive    = true
     nosCountdown = Config.Nitrous.boostDuration
+
+    -- Drain pressure immediately on activation (client-authoritative display)
+    nosPressure = math.max(0.0, nosPressure - Config.Nitrous.pressureDrain)
 
     local lockedHealth   = GetVehicleEngineHealth(veh)
     local baseDriveForce = GetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce')
@@ -94,13 +107,15 @@ local function ActivateNOS(veh)
     SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', baseSpd)
 
     nosActive    = false
-    nosEmpty     = true
     nosCountdown = 0.0
-    Notify(Lang:t('nos_empty'), 'error', 5000)
+
+    if IsEmpty() then
+        Notify(Lang:t('nos_empty'), 'error', 5000)
+    end
 end
 
 -- ─────────────────────────────────────────────
---  NOS CANISTER ITEM USE  (replaces station zone)
+--  NOS CANISTER ITEM USE
 -- ─────────────────────────────────────────────
 
 RegisterNetEvent('fcrp_tuner:client:useNosCanister', function()
@@ -115,8 +130,8 @@ RegisterNetEvent('fcrp_tuner:client:useNosCanister', function()
         Notify(Lang:t('nos_not_installed'), 'error', 3000)
         return
     end
-    if not nosEmpty then
-        Notify('NOS is already full — no refill needed.', 'inform', 3000)
+    if not IsEmpty() and nosPressure >= 1.0 then
+        Notify('NOS tank is already full.', 'inform', 3000)
         return
     end
 
@@ -133,10 +148,12 @@ RegisterNetEvent('fcrp_tuner:client:useNosCanister', function()
     TriggerServerEvent('fcrp_tuner:server:useNosCanister', NetworkGetNetworkIdFromEntity(veh))
 end)
 
-RegisterNetEvent('fcrp_tuner:client:nosRefillConfirmed', function()
-    nosEmpty         = false
+-- Server confirms refill and sends new pressure level
+RegisterNetEvent('fcrp_tuner:client:nosRefillConfirmed', function(newPressure)
+    nosPressure      = newPressure or math.min(1.0, nosPressure + Config.Nitrous.canisterRefill)
     nosCooldownEndMs = 0
-    Notify(Lang:t('nos_refilled'), 'success', 4000)
+    local pct = math.floor(nosPressure * 100)
+    Notify(string.format('✅ NOS refilled — tank at %d%%', pct), 'success', 4000)
 end)
 
 -- ─────────────────────────────────────────────
@@ -157,10 +174,10 @@ local function StartNOSThread(veh)
                 if IsControlJustPressed(0, Config.Nitrous.key) then
                     local remaining = CooldownRemainingSec()
                     if nosActive then
-                        -- burning
+                        -- already burning
                     elseif remaining > 0 then
                         Notify('⏳ NOS cooldown — ' .. FormatCooldown(remaining) .. ' remaining.', 'error', 3000)
-                    elseif nosEmpty then
+                    elseif IsEmpty() then
                         Notify('NOS empty — use a NOS Canister item to refill.', 'error', 3000)
                     else
                         CreateThread(function() ActivateNOS(nosVehicle) end)
@@ -177,11 +194,12 @@ end
 --  EVENTS
 -- ─────────────────────────────────────────────
 
-AddEventHandler('fcrp_tuner:client:nosInstalled', function(veh, silent, cooldownUntil, isEmpty)
-    nosInstalled = true
-    nosVehicle   = veh
-    nosActive    = false
-    nosEmpty     = isEmpty or false
+-- pressure arg replaces the old isEmpty bool
+AddEventHandler('fcrp_tuner:client:nosInstalled', function(veh, silent, cooldownUntil, pressure)
+    nosInstalled     = true
+    nosVehicle       = veh
+    nosActive        = false
+    nosPressure      = pressure or 1.0
     nosCooldownEndMs = (cooldownUntil and cooldownUntil > 0) and (NowMs() + cooldownUntil * 1000) or 0
     if not silent then Notify(Lang:t('nos_installed'), 'success', 5000) end
     StartNOSThread(veh)
@@ -190,7 +208,7 @@ end)
 AddEventHandler('fcrp_tuner:client:nosRemoved', function()
     nosInstalled     = false
     nosActive        = false
-    nosEmpty         = false
+    nosPressure      = 1.0
     nosCooldownEndMs = 0
     nosVehicle       = nil
     nosThread        = nil
@@ -200,6 +218,6 @@ AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
     nosInstalled     = false
     nosActive        = false
-    nosEmpty         = false
+    nosPressure      = 1.0
     nosCooldownEndMs = 0
 end)
