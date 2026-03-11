@@ -604,18 +604,22 @@ RegisterNetEvent('fcrp_dealership:server:getSalesLeaderboard', function()
         return
     end
 
-    -- [FIX #5] JOIN with players table to restrict to citizenids that currently
-    -- have the flamedrive job. This filters out fired staff from the board.
-    -- We still do the async name resolution for offline-but-still-employed staff.
+    -- [FIX #5] Filter to current flamedrive employees only.
+    -- JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.name')) handles QBX servers that store
+    -- job as a JSON object. The OR p.job LIKE fallback covers edge cases where
+    -- the column is stored as a plain JSON string that JSON_EXTRACT can't parse.
     MySQL.query([[
         SELECT sl.citizenid, COUNT(*) as sales, SUM(sl.price) as revenue
         FROM fcrp_dealership_sales_log sl
         INNER JOIN players p ON p.citizenid = sl.citizenid
-        WHERE JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.name')) = ?
+        WHERE (
+            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.name')) = ?
+            OR p.job LIKE ?
+        )
         GROUP BY sl.citizenid
         ORDER BY sales DESC
         LIMIT 10
-    ]], { Config.JobName }, function(result)
+    ]], { Config.JobName, '%"name":"' .. Config.JobName .. '"%' }, function(result)
         if not result or #result == 0 then
             TriggerClientEvent('fcrp_dealership:client:receiveLeaderboard', src, { entries = {} })
             return
