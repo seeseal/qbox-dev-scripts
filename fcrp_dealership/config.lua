@@ -145,7 +145,7 @@ Config.GovBankAccount  = "gov_taxes"        -- !! CHANGE ME !!
 -- ============================================
 
 Config.TestDriveDuration = 300          -- seconds (300 = 5 minutes)
-Config.TestDriveRadius   = 500.0        -- metres from return point before out-of-bounds warning (!! CHANGE ME !!)
+Config.TestDriveRadius   = 5000000.0        -- metres from return point before out-of-bounds warning (!! CHANGE ME !!)
 Config.TestDriveStart    = vec4(-1235.77, -342.24, 35.7, 25.55)   -- !! CHANGE ME !! road near dealership
 Config.TestDriveReturn   = vec4(-1266.06, -342.37, 35.05, 118.11)          -- !! CHANGE ME !! where player returns
 
