@@ -287,7 +287,7 @@ lib.callback.register('fcrp_tuner:server:purchase', function(source, productKey,
         MySQL.update.await('UPDATE fcrp_tuner_mods SET drift_chip = 1 WHERE plate = ?', { plate })
         exports.ox_inventory:RemoveItem(src, 'drift_chip', 1)
     elseif productKey == 'stance_kit' then
-        MySQL.update.await('UPDATE fcrp_tuner_mods SET stance_kit = 1 WHERE plate = ?', { plate })
+        -- stance is tracked by stance_camber/height/wheeldist being non-null (saved on editor confirm)
         exports.ox_inventory:RemoveItem(src, 'stance_rod', 1)
     elseif productKey == 'nitrous_kit' then
         MySQL.update.await('UPDATE fcrp_tuner_mods SET nos = 1, nos_cooldown = 0 WHERE plate = ?', { plate })
@@ -441,7 +441,7 @@ end)
 
 lib.addCommand('removechip', {
     help = '(PD) Remove illegal engine chip from nearby vehicle',
-    restricted = false,
+    restricted = 'group.' .. Config.PDJob,
 }, function(source)
     local src = source
     if not HasJob(src, Config.PDJob) then

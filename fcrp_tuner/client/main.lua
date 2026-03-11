@@ -519,7 +519,7 @@ end)
 --  REAPPLY MODS ON LOAD / VEHICLE ENTER
 -- ─────────────────────────────────────────────
 
-AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
+AddEventHandler('qbx_core:playerLoaded', function()
     Wait(5000)
     local veh = GetDrivenVehicle()
     if veh then
