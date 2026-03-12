@@ -17,9 +17,10 @@ end
 
 local fakePlateCache     = {}  -- displayed plate → real plate
 local dutyPlayers        = {}  -- src → bool
-local activeRunPlayers   = {}  -- citizenid → reward amount
+local activeRunPlayers   = {}  -- citizenid → { reward = number, coords = vector3 }
 local supplyRunCooldowns = {}  -- citizenid → os.time()
 local activeCrafts       = {}  -- src → recipeIdx  (FIX #1: craft session tracking)
+local fakePlatePurchases = {}  -- plate(real) → os.time() (short-lived "paid token")
 
 -- ─────────────────────────────────────────────
 --  DB INIT
@@ -110,6 +111,13 @@ local function IsOnDuty(src)
     local job = Player.PlayerData.job
     if not job or job.name ~= Config.RequiredJob then return false end
     return dutyPlayers[src] == true
+end
+
+local function IsPolice(src)
+    local Player = GetPlayer(src)
+    if not Player then return false end
+    local job = Player.PlayerData.job
+    return job and job.name == Config.PDJob
 end
 
 -- FIX #3: Shared tuner job guard used by all write-only net events
@@ -282,7 +290,14 @@ RegisterNetEvent('fcrp_tuner:server:setVehicleValue', function(netId, value)
     local plate = GetPlate(netId)
     if not plate then return end
     local safeValue = math.max(0, math.min(10000000, math.floor(tonumber(value) or 0)))
-    MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, vehicle_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE vehicle_value = ?', { plate, safeValue, safeValue })
+    -- Prevent clients from lowering value to reduce chip price bonus: only increase.
+    local row    = MySQL.single.await('SELECT vehicle_value FROM fcrp_tuner_mods WHERE plate = ?', { plate })
+    local stored = (row and row.vehicle_value) or 0
+    local final  = math.max(stored, safeValue)
+    MySQL.query.await(
+        'INSERT INTO fcrp_tuner_mods (plate, vehicle_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE vehicle_value = ?',
+        { plate, final, final }
+    )
 end)
 
 -- ─────────────────────────────────────────────
@@ -353,6 +368,9 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
     if not job or job.name ~= Config.RequiredJob then
         return false, 'You must be a tuner to install mods.'
     end
+    if not IsOnDuty(src) then
+        return false, 'You must be on duty to install mods.'
+    end
 
     local plate = GetPlate(netId)
     if not plate then return false, 'Vehicle not found.' end
@@ -420,8 +438,20 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
     local saveMap = {
         engine_chip = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, engine_chip) VALUES (?, 1) ON DUPLICATE KEY UPDATE engine_chip = 1, orig_speed = NULL, orig_force = NULL, orig_inertia = NULL', { plate }) end,
         drift_chip  = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, drift_chip)  VALUES (?, 1) ON DUPLICATE KEY UPDATE drift_chip  = 1, orig_traction_max = NULL, orig_traction_min = NULL, orig_traction_loss = NULL, orig_drag = NULL, orig_drive_force = NULL, orig_steering_lock = NULL, orig_anti_roll = NULL', { plate }) end,
-        stance_kit  = function() end,
-        fake_plate  = function() end,  -- cosmetic-only, no DB write
+        -- Mark stance as "installed" so saveStance can enforce purchase-before-save.
+        -- Values are overwritten when player saves stance.
+        stance_kit  = function()
+            MySQL.query.await([[
+                INSERT INTO fcrp_tuner_mods (plate, stance_camber, stance_height, stance_wheeldist)
+                VALUES (?, 0.0, 0.0, 0.0)
+                ON DUPLICATE KEY UPDATE
+                    stance_camber    = COALESCE(stance_camber, 0.0),
+                    stance_height    = COALESCE(stance_height, 0.0),
+                    stance_wheeldist = COALESCE(stance_wheeldist, 0.0)
+            ]], { plate })
+        end,
+        -- cosmetic-only: no DB write, but store short-lived "paid token"
+        fake_plate  = function() fakePlatePurchases[plate] = os.time() end,
         nitrous_kit = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, nos, nos_pressure) VALUES (?, 1, 1.0) ON DUPLICATE KEY UPDATE nos = 1, nos_pressure = 1.0', { plate }) end,
     }
 
@@ -451,6 +481,12 @@ end)
 -- ─────────────────────────────────────────────
 
 lib.callback.register('fcrp_tuner:server:removeMod', function(src, netId, modKey)
+    if not IsTuner(src) then
+        return false, 'You must be a tuner to remove mods.'
+    end
+    if not IsOnDuty(src) then
+        return false, 'You must be on duty to remove mods.'
+    end
     local plate = GetPlate(netId)
     if not plate then return false, 'Vehicle not found.' end
 
@@ -486,6 +522,14 @@ RegisterNetEvent('fcrp_tuner:server:saveStance', function(netId, camberF, camber
     if not IsTuner(src) then return end
     local plate = GetPlate(netId)
     if not plate then return end
+
+    -- Enforce purchase-before-save (stance kit purchase writes stance_* columns non-NULL)
+    local row = MySQL.single.await('SELECT stance_camber FROM fcrp_tuner_mods WHERE plate = ?', { plate })
+    if not row or row.stance_camber == nil then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'Stance kit is not installed on this vehicle.', type = 'error', duration = 4000 })
+        return
+    end
+
     local cfg = Config.StanceKit
     camberF = math.max(cfg.camberMin,     math.min(cfg.camberMax,     tonumber(camberF) or 0))
     camberR = math.max(cfg.camberMin,     math.min(cfg.camberMax,     tonumber(camberR) or 0))
@@ -512,6 +556,14 @@ RegisterNetEvent('fcrp_tuner:server:saveNeon', function(netId, mode, r, g, b)
     if not plate then return end
     local validModes = { static = true, rainbow = true, rgb = true, strobe = true }
     if not validModes[mode] then return end
+
+    -- Enforce purchase-before-save (neon purchase writes neon_mode non-NULL)
+    local row = MySQL.single.await('SELECT neon_mode FROM fcrp_tuner_mods WHERE plate = ?', { plate })
+    if not row or row.neon_mode == nil then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'Neon kit is not installed on this vehicle.', type = 'error', duration = 4000 })
+        return
+    end
+
     r = r and math.max(0, math.min(255, math.floor(tonumber(r) or 0))) or nil
     g = g and math.max(0, math.min(255, math.floor(tonumber(g) or 0))) or nil
     b = b and math.max(0, math.min(255, math.floor(tonumber(b) or 0))) or nil
@@ -545,6 +597,14 @@ RegisterNetEvent('fcrp_tuner:server:applyFakePlate', function(netId, plateText)
 
     local plate = GetPlate(netId)
     if not plate then return end
+
+    -- Enforce purchase-before-apply using short-lived token from purchase callback
+    local paidAt = fakePlatePurchases[plate]
+    if not paidAt or (os.time() - paidAt) > 90 then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'You must purchase a fake plate from the shop first.', type = 'error', duration = 4000 })
+        return
+    end
+    fakePlatePurchases[plate] = nil
 
     -- Cosmetic-only: runtime cache only, nothing written to DB, resets on restart
     fakePlateCache[plateText] = plate
@@ -747,7 +807,7 @@ lib.addCommand('supplyrun', {
     local loc    = Config.SupplyRun.Locations[math.random(#Config.SupplyRun.Locations)]
     local reward = math.random(Config.SupplyRun.rewardMin, Config.SupplyRun.rewardMax)
 
-    activeRunPlayers[cid] = reward
+    activeRunPlayers[cid] = { reward = reward, coords = loc }
     TriggerClientEvent('fcrp_tuner:client:startSupplyRun', src, { x = loc.x, y = loc.y, z = loc.z }, reward)
     TriggerClientEvent('ox_lib:notify', src, { title = '🚚 Supply run dispatched! Follow the blip.', type = 'inform', duration = 5000 })
 end)
@@ -758,8 +818,20 @@ RegisterNetEvent('fcrp_tuner:server:completeSupplyRun', function()
     if not Player then return end
     local cid = Player.PlayerData.citizenid
 
-    if not activeRunPlayers[cid] then return end
-    local safeReward        = activeRunPlayers[cid]
+    local run = activeRunPlayers[cid]
+    if not run then return end
+
+    -- Validate player is actually at the pickup location (server-side anti-cheat)
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return end
+    local pcoords = GetEntityCoords(ped)
+    local dist = #(pcoords - run.coords)
+    if dist > (Config.SupplyRun.pickupRadius + 2.0) then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'You are too far from the pickup point.', type = 'error', duration = 4000 })
+        return
+    end
+
+    local safeReward        = run.reward
     activeRunPlayers[cid]   = nil
     supplyRunCooldowns[cid] = os.time()
     exports.ox_inventory:AddItem(src, 'damaged_parts', safeReward)
@@ -826,8 +898,16 @@ lib.addCommand('scanplate', {
     TriggerClientEvent('fcrp_tuner:client:requestScanPlate', src)
 end)
 
+-- Police-only event guard (net events can be triggered directly by cheaters)
+local function RequirePolice(src)
+    if IsPolice(src) then return true end
+    TriggerClientEvent('ox_lib:notify', src, { title = 'Only police can use this.', type = 'error', duration = 3000 })
+    return false
+end
+
 RegisterNetEvent('fcrp_tuner:server:checkChip', function(netId)
     local src   = source
+    if not RequirePolice(src) then return end
     local plate = GetPlate(netId)
     if not plate then return end
     local row = MySQL.single.await('SELECT engine_chip FROM fcrp_tuner_mods WHERE plate = ?', { plate })
@@ -842,6 +922,7 @@ end)
 
 RegisterNetEvent('fcrp_tuner:server:pdRemoveChip', function(netId)
     local src   = source
+    if not RequirePolice(src) then return end
     local plate = GetPlate(netId)
     if not plate then return end
     MySQL.query.await('UPDATE fcrp_tuner_mods SET engine_chip = 0 WHERE plate = ?', { plate })
@@ -852,6 +933,7 @@ end)
 
 RegisterNetEvent('fcrp_tuner:server:inspectVehicle', function(netId)
     local src   = source
+    if not RequirePolice(src) then return end
     local plate = GetPlate(netId)
     if not plate then
         TriggerClientEvent('ox_lib:notify', src, { title = 'No vehicle found nearby.', type = 'error', duration = 3000 })
@@ -889,6 +971,7 @@ end)
 
 RegisterNetEvent('fcrp_tuner:server:scanPlate', function(netId)
     local src = source
+    if not RequirePolice(src) then return end
     local veh = NetworkGetEntityFromNetworkId(netId)
     if not veh or veh == 0 then
         TriggerClientEvent('ox_lib:notify', src, { title = 'No vehicle found nearby.', type = 'error', duration = 3000 })

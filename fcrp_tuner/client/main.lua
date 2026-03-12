@@ -274,9 +274,25 @@ end
 
 local function CheckInventoryItem(itemName, qty)
     if not itemName then return true end
-    local count = exports.ox_inventory:GetItemCount(itemName) or 0
-    if count < (qty or 1) then
-        Notify('You need ' .. (qty or 1) .. 'x ' .. itemName .. ' to install this mod.', 'error', 4000)
+    local needed = qty or 1
+    local count = 0
+
+    -- ox_inventory client APIs differ by version; support the common ones safely.
+    local okA, resA = pcall(function()
+        return exports.ox_inventory:GetItemCount(itemName)
+    end)
+    if okA and type(resA) == 'number' then
+        count = resA
+    else
+        local okB, resB = pcall(function()
+            return exports.ox_inventory:Search('count', itemName)
+        end)
+        if okB and type(resB) == 'number' then
+            count = resB
+        end
+    end
+    if count < needed then
+        Notify('You need ' .. needed .. 'x ' .. itemName .. ' to install this mod.', 'error', 4000)
         return false
     end
     return true
