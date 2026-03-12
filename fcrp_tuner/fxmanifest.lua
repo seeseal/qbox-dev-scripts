@@ -19,12 +19,12 @@ shared_scripts {
 }
 
 client_scripts {
+    'client/debug.lua',
     'client/ui.lua',
     'client/main.lua',
     'client/stance.lua',
     'client/nitrous.lua',
     'client/neon.lua',
-    'client/exhaust.lua',
 }
 
 server_scripts {

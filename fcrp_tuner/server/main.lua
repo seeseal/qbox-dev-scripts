@@ -88,10 +88,8 @@ end
 local function IsVehicleBlacklisted(netId)
     local veh = NetworkGetEntityFromNetworkId(netId)
     if not veh or veh == 0 then return false, nil end
-    local cls = GetVehicleClass(veh)
-    for _, c in ipairs(Config.BlacklistedVehicleClasses) do
-        if c == cls then return true, 'Vehicle class not allowed.' end
-    end
+    -- Class-based check (GetVehicleClass/GetVehicleTypeRaw) is client-only.
+    -- Server-side we can only reliably check by model name.
     local model = GetEntityModel(veh)
     for _, m in ipairs(Config.BlacklistedVehicles) do
         if GetHashKey(m) == model then return true, 'This vehicle is not allowed.' end
@@ -120,6 +118,22 @@ local function IsTuner(src)
     if not Player then return false end
     local job = Player.PlayerData.job
     return job and job.name == Config.RequiredJob
+end
+
+-- Check that the vehicle plate is registered to the player requesting the mod.
+-- Uses the standard qbox player_vehicles table.
+local function IsVehicleOwned(src, plate)
+    if not plate or plate == '' then return false end
+    local Player = GetPlayer(src)
+    if not Player then return false end
+    -- Check passenger too — the payer may be the passenger, not the tuner.
+    -- We verify against the tuner's own player, the ownership check is done
+    -- against the vehicle plate in player_vehicles.
+    local row = MySQL.single.await(
+        'SELECT citizenid FROM player_vehicles WHERE plate = ? LIMIT 1',
+        { plate }
+    )
+    return row ~= nil   -- plate exists in the owned vehicles table
 end
 
 local function PayCommission(src, amount)
@@ -167,23 +181,56 @@ AddEventHandler('playerDropped', function()
 end)
 
 -- ─────────────────────────────────────────────
+--  VEHICLE OWNERSHIP CHECK
+-- ─────────────────────────────────────────────
+
+lib.callback.register('fcrp_tuner:server:isVehicleOwned', function(src, netId)
+    local plate = GetPlate(netId)
+    if not plate then return false end
+    return IsVehicleOwned(src, plate)
+end)
+
+-- ─────────────────────────────────────────────
 --  VEHICLE STATE
 -- ─────────────────────────────────────────────
 
 lib.callback.register('fcrp_tuner:server:getVehicleState', function(src, netId)
     local plate = GetPlate(netId)
-    if not plate then return nil end
+    if not plate then return {
+        engine_chip = false, drift_chip = false,
+        nos = false, nos_pressure = 1.0, nos_cooldown_until = 0,
+        neon_mode = nil, neon_r = nil, neon_g = nil, neon_b = nil,
+        has_stance = false, stance = nil,
+        engine_originals = nil, drift_originals = nil,
+    } end
 
     local row = MySQL.single.await('SELECT * FROM fcrp_tuner_mods WHERE plate = ?', { plate })
     if not row then return {
         engine_chip = false, drift_chip = false,
         nos = false, nos_pressure = 1.0, nos_cooldown_until = 0,
         neon_mode = nil, neon_r = nil, neon_g = nil, neon_b = nil,
-        has_stance = false, stance = nil, has_exhaust = false, fake_plate = nil,
+        has_stance = false, stance = nil,
+        engine_originals = nil, drift_originals = nil,
     } end
 
-    -- FIX #7: Return raw epoch-ms timestamp. Client computes remaining seconds using
-    -- os.time() (real wall-clock) instead of GetGameTimer(), avoiding game-session drift.
+    -- Return stored original handling values so client can always apply the
+    -- exact same boost from the exact same baseline — no compounding possible.
+    local engineOriginals = (row.engine_chip == 1 and row.orig_speed) and {
+        speed   = row.orig_speed,
+        force   = row.orig_force,
+        inertia = row.orig_inertia,
+    } or nil
+
+    local driftOriginals = (row.drift_chip == 1 and row.orig_traction_max) and {
+        tractionMax  = row.orig_traction_max,
+        tractionMin  = row.orig_traction_min,
+        tractionLoss = row.orig_traction_loss,
+        dragCoeff    = row.orig_drag,
+        driveForce   = row.orig_drive_force,
+        steeringLock = row.orig_steering_lock,
+        antiRoll     = row.orig_anti_roll,
+    } or nil
+
     return {
         engine_chip        = row.engine_chip == 1,
         drift_chip         = row.drift_chip == 1,
@@ -200,8 +247,10 @@ lib.callback.register('fcrp_tuner:server:getVehicleState', function(src, netId)
             height    = row.stance_height,
             wheeldist = row.stance_wheeldist,
         } or nil,
-        has_exhaust = row.has_exhaust == 1,
-        fake_plate  = row.fake_plate,
+        has_exhaust      = false,   -- exhaust mod removed from resource
+        fake_plate       = nil,     -- cosmetic-only, not persisted in DB
+        engine_originals = engineOriginals,
+        drift_originals  = driftOriginals,
     }
 end)
 
@@ -237,13 +286,54 @@ RegisterNetEvent('fcrp_tuner:server:setVehicleValue', function(netId, value)
 end)
 
 -- ─────────────────────────────────────────────
+--  ORIGINAL HANDLING PERSISTENCE
+--  Client sends stock handling values BEFORE applying any chip boost.
+--  These are stored in the DB so ReapplyMods always has the clean baseline.
+-- ─────────────────────────────────────────────
+
+RegisterNetEvent('fcrp_tuner:server:saveEngineChipOriginals', function(netId, speed, force, inertia)
+    local src = source
+    if not IsTuner(src) then return end
+    local plate = GetPlate(netId)
+    if not plate then return end
+    local s = tonumber(speed)   or 0
+    local f = tonumber(force)   or 0
+    local i = tonumber(inertia) or 1.0
+    MySQL.query.await(
+        'UPDATE fcrp_tuner_mods SET orig_speed = ?, orig_force = ?, orig_inertia = ? WHERE plate = ?',
+        { s, f, i, plate }
+    )
+end)
+
+RegisterNetEvent('fcrp_tuner:server:saveDriftChipOriginals', function(netId, tractionMax, tractionMin, tractionLoss, drag, driveForce, steeringLock, antiRoll)
+    local src = source
+    if not IsTuner(src) then return end
+    local plate = GetPlate(netId)
+    if not plate then return end
+    MySQL.query.await(
+        'UPDATE fcrp_tuner_mods SET orig_traction_max = ?, orig_traction_min = ?, orig_traction_loss = ?, orig_drag = ?, orig_drive_force = ?, orig_steering_lock = ?, orig_anti_roll = ? WHERE plate = ?',
+        {
+            tonumber(tractionMax)  or 2.73,
+            tonumber(tractionMin)  or 1.80,
+            tonumber(tractionLoss) or 1.0,
+            tonumber(drag)         or 4.0,
+            tonumber(driveForce)   or 0.4,
+            tonumber(steeringLock) or 35.0,
+            tonumber(antiRoll)     or 0.7,
+            plate
+        }
+    )
+end)
+
+-- ─────────────────────────────────────────────
 --  PASSENGER LOOKUP
 -- ─────────────────────────────────────────────
 
 lib.callback.register('fcrp_tuner:server:getPassenger', function(src, netId)
     local veh = NetworkGetEntityFromNetworkId(netId)
     if not veh or veh == 0 then return nil end
-    for seat = 0, GetVehicleMaxNumberOfPassengers(veh) - 1 do
+    -- GetVehicleMaxNumberOfPassengers is client-only; iterate up to 8 seats server-side
+    for seat = 0, 7 do
         local ped     = GetPedInVehicleSeat(veh, seat)
         local passSrc = ped and ped ~= 0 and GetPlayerFromPed(ped) or -1
         if passSrc ~= -1 and passSrc ~= src then return passSrc end
@@ -269,6 +359,11 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
 
     local blacklisted, reason = IsVehicleBlacklisted(netId)
     if blacklisted then return false, reason end
+
+    -- Only allow mods on player-owned vehicles registered in player_vehicles
+    if not IsVehicleOwned(src, plate) then
+        return false, 'This vehicle is not registered to any player. Only owned vehicles can be modified.'
+    end
 
     local payerSrc = passengerSrc or src
     local Payer    = GetPlayer(payerSrc)
@@ -302,11 +397,9 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
     elseif productKey == 'nitrous_kit' then
         price = Config.Nitrous.price
 
-    elseif productKey == 'exhaust_mod' then
-        price = Config.ExhaustMod.price
-
     elseif productKey == 'fake_plate' then
         price = Config.FakePlate.price
+        -- Fake plate is cosmetic-only: no DB record, resets on server restart.
 
     elseif productKey == 'neon_static' or productKey == 'neon_rainbow'
         or productKey == 'neon_rgb'    or productKey == 'neon_strobe' then
@@ -325,12 +418,11 @@ lib.callback.register('fcrp_tuner:server:purchase', function(src, productKey, _,
     -- the player retains their items rather than losing them with no DB record written.
     local neonMap = { neon_static = 'static', neon_rainbow = 'rainbow', neon_rgb = 'rgb', neon_strobe = 'strobe' }
     local saveMap = {
-        engine_chip = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, engine_chip) VALUES (?, 1) ON DUPLICATE KEY UPDATE engine_chip = 1', { plate }) end,
-        drift_chip  = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, drift_chip)  VALUES (?, 1) ON DUPLICATE KEY UPDATE drift_chip  = 1', { plate }) end,
+        engine_chip = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, engine_chip) VALUES (?, 1) ON DUPLICATE KEY UPDATE engine_chip = 1, orig_speed = NULL, orig_force = NULL, orig_inertia = NULL', { plate }) end,
+        drift_chip  = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, drift_chip)  VALUES (?, 1) ON DUPLICATE KEY UPDATE drift_chip  = 1, orig_traction_max = NULL, orig_traction_min = NULL, orig_traction_loss = NULL, orig_drag = NULL, orig_drive_force = NULL, orig_steering_lock = NULL, orig_anti_roll = NULL', { plate }) end,
         stance_kit  = function() end,
-        fake_plate  = function() end,
+        fake_plate  = function() end,  -- cosmetic-only, no DB write
         nitrous_kit = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, nos, nos_pressure) VALUES (?, 1, 1.0) ON DUPLICATE KEY UPDATE nos = 1, nos_pressure = 1.0', { plate }) end,
-        exhaust_mod = function() MySQL.query.await('INSERT INTO fcrp_tuner_mods (plate, has_exhaust) VALUES (?, 1) ON DUPLICATE KEY UPDATE has_exhaust = 1', { plate }) end,
     }
 
     if neonMap[productKey] then
@@ -363,22 +455,21 @@ lib.callback.register('fcrp_tuner:server:removeMod', function(src, netId, modKey
     if not plate then return false, 'Vehicle not found.' end
 
     if modKey == 'fake_plate' then
-        local row = MySQL.single.await('SELECT fake_plate FROM fcrp_tuner_mods WHERE plate = ?', { plate })
-        if row and row.fake_plate then
-            fakePlateCache[row.fake_plate] = nil
+        -- Cosmetic-only: just clear the runtime cache entry and restore the real plate visually
+        -- Walk cache to find which fake plate maps to this real plate
+        for fk, rp in pairs(fakePlateCache) do
+            if rp == plate then fakePlateCache[fk] = nil; break end
         end
-        MySQL.query.await('UPDATE fcrp_tuner_mods SET fake_plate = NULL WHERE plate = ?', { plate })
         TriggerClientEvent('fcrp_tuner:client:restoreRealPlate', -1, netId, plate)
         return true
     end
 
     local colMap = {
-        engine_chip = 'engine_chip = 0',
-        drift_chip  = 'drift_chip = 0',
+        engine_chip = 'engine_chip = 0, orig_speed = NULL, orig_force = NULL, orig_inertia = NULL',
+        drift_chip  = 'drift_chip = 0, orig_traction_max = NULL, orig_traction_min = NULL, orig_traction_loss = NULL, orig_drag = NULL, orig_drive_force = NULL, orig_steering_lock = NULL, orig_anti_roll = NULL',
         nos         = 'nos = 0, nos_pressure = 1.0, nos_cooldown_until = 0',
         neon        = 'neon_mode = NULL, neon_r = NULL, neon_g = NULL, neon_b = NULL',
         stance      = 'stance_camber = NULL, stance_height = NULL, stance_wheeldist = NULL',
-        exhaust     = 'has_exhaust = 0',
     }
     if not colMap[modKey] then return false, 'Unknown mod.' end
     MySQL.query.await('UPDATE fcrp_tuner_mods SET ' .. colMap[modKey] .. ' WHERE plate = ?', { plate })
@@ -455,11 +546,11 @@ RegisterNetEvent('fcrp_tuner:server:applyFakePlate', function(netId, plateText)
     local plate = GetPlate(netId)
     if not plate then return end
 
-    MySQL.query.await('UPDATE fcrp_tuner_mods SET fake_plate = ? WHERE plate = ?', { plateText, plate })
+    -- Cosmetic-only: runtime cache only, nothing written to DB, resets on restart
     fakePlateCache[plateText] = plate
 
     TriggerClientEvent('fcrp_tuner:client:applyFakePlate', -1, netId, plateText)
-    LogDiscord('Fake Plate Applied', string.format('**Real Plate:** %s\n**Fake Plate:** %s', plate, plateText), 16776960, src)
+    LogDiscord('Fake Plate Applied', string.format('**Real Plate:** %s\n**Fake Plate:** %s  (cosmetic)', plate, plateText), 16776960, src)
 end)
 
 -- ─────────────────────────────────────────────
@@ -575,11 +666,12 @@ end)
 --  SOCIETY STASH  (Master Tuner only)
 -- ─────────────────────────────────────────────
 
+-- FIX: Society stash is accessible to all tuner employees (any grade).
+-- Owner-only restriction removed per design update.
 RegisterNetEvent('fcrp_tuner:server:openSocietyStash', function()
-    local src       = source
-    local gradeConf = GetJobGradeConfig(src)
-    if not gradeConf.isOwner then
-        TriggerClientEvent('ox_lib:notify', src, { title = 'Only the Master Tuner can access the society stash.', type = 'error', duration = 4000 })
+    local src    = source
+    if not IsTuner(src) then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'Only tuner employees can access the society stash.', type = 'error', duration = 4000 })
         return
     end
     TriggerClientEvent('fcrp_tuner:client:openSocietyStash', src)
@@ -780,8 +872,7 @@ RegisterNetEvent('fcrp_tuner:server:inspectVehicle', function(netId)
     end
     if row.neon_mode        then mods[#mods+1] = '💡 Neon (' .. row.neon_mode .. ')' end
     if row.stance_camber    then mods[#mods+1] = '📐 Stance Kit' end
-    if row.has_exhaust == 1 then mods[#mods+1] = '💨 Exhaust Mod' end
-    if row.fake_plate       then mods[#mods+1] = '🪪 Fake Plate (real: ' .. plate .. ')' end
+    -- Fake plate is cosmetic-only (runtime cache); checked via scanplate command
 
     if #mods == 0 then
         TriggerClientEvent('ox_lib:notify', src, { title = '✅ ' .. plate .. ' — No active mods.', type = 'success', duration = 6000 })

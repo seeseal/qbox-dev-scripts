@@ -45,7 +45,7 @@ Config.RampRadius = 8.0
 --  WORKSHOP BAYS  (vehicle pull-in zones)
 -- ═══════════════════════════════════════════════════════════════
 Config.WorkshopBays = {
-    { coords = vector4(135.8,  -3030.52, 5.66, 179.23) },
+    { coords = vec3(144.73, -3030.63, 5.57) },
     { coords = vector4(145.01, -3030.66, 5.66, 180.31) },
 }
 
@@ -77,7 +77,8 @@ Config.DiscordColour  = 16711680
 Config.EngineChip = {
     installMs         = 10000,
     removeMs          = 8000,
-    speedBoostPercent = 15,
+    speedBoostPercent = 15,     -- % increase to top speed AND torque (fInitialDriveMaxFlatVel + fInitialDriveForce)
+    driveInertiaBoost = 1.4,    -- multiplier for fDriveInertia (how quickly power builds — makes chip feel immediate)
     basePrice         = 250000,
     carValuePercent   = 0.30,
 }
@@ -90,11 +91,18 @@ Config.DriftChip = {
     carValuePercent    = 0.20,
     installMs          = 6000,
     removeMs           = 5000,
-    suspensionLevel    = 2,
-    tractionMultiplier = 0.80,
-    tractionLossMult   = 1.60,
-    dragCoeff          = 8.0,
-    baseDragCoeff      = 4.0,
+    suspensionLevel    = 2,       -- suspension mod level (softest = best body roll)
+    tractionCurveMax   = 0.30,    -- near-zero rear grip (normal ~2.73) — how easily the rear breaks loose
+    tractionCurveMin   = 0.20,    -- (normal ~1.80)
+    tractionLossMult   = 6.0,     -- how long and controllable slides are (normal 1.0)
+    driveForceBoost    = 1.5,     -- multiply original drive force so throttle causes oversteer
+    steeringLock       = 55.0,    -- wide lock for counter-steering (normal ~35)
+    dragCoeff          = 8.0,     -- drag so slides slow naturally
+    baseDragCoeff      = 4.0,     -- restored on removal
+    antiRollForce      = 0.2,     -- low anti-roll = body leans through corners
+    smokeScaleMin      = 1.5,     -- minimum smoke particle size
+    smokeScaleSpeed    = 8.0,     -- divide speed by this to scale smoke (lower = more smoke sooner)
+    smokeScaleRpm      = 1.5,     -- multiply rpm by this for smoke scale contribution
 }
 
 -- ─────────────────────────────────────────────

@@ -1,7 +1,5 @@
 -- ╔══════════════════════════════════════════════╗
 -- ║     fcrp_tuner  |  client/exhaust.lua       ║
--- ║  Anti-lag backfire on throttle lift at      ║
--- ║  high RPM. Particle + audio.                ║
 -- ╚══════════════════════════════════════════════╝
 
 local exhaustInstalled = false
@@ -28,35 +26,42 @@ end
 
 -- ─────────────────────────────────────────────
 --  BACKFIRE EFFECT
+--  FIX: StartParticleFxNonLoopedOnEntityBone is not a valid FiveM native.
+--  We resolve the bone world position manually and fire a coord-based effect.
 -- ─────────────────────────────────────────────
 
 local function PlayBackfire(veh)
     if not ptfxLoaded then EnsurePtfx() end
-    -- Try primary exhaust bone, then fall back to exhausts
+    if not ptfxLoaded then return end
+
     local bones = { 'exhaust', 'exhaust_2', 'exhaust_3', 'exhaust_4' }
     local fired  = false
+    local heading = GetEntityHeading(veh)
+
     for _, boneName in ipairs(bones) do
         local boneIdx = GetEntityBoneIndexByName(veh, boneName)
         if boneIdx ~= -1 then
+            local bonePos = GetWorldPositionOfEntityBone(veh, boneIdx)
             UseParticleFxAssetNextCall(PTFX_DICT)
-            StartParticleFxNonLoopedOnEntityBone(
-                PTFX_EFFECT, veh,
-                0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0,
-                boneIdx,
+            StartParticleFxNonLoopedAtCoord(
+                PTFX_EFFECT,
+                bonePos.x, bonePos.y, bonePos.z,
+                0.0, 0.0, heading,
                 Config.ExhaustMod.backfireScale,
                 false, false, false
             )
             fired = true
         end
     end
-    -- Fallback: play at entity position if no exhaust bone found
+
+    -- Fallback: fire at rear of vehicle if no exhaust bone exists
     if not fired then
+        local pos = GetOffsetFromEntityInWorldCoords(veh, 0.0, -2.5, 0.3)
         UseParticleFxAssetNextCall(PTFX_DICT)
         StartParticleFxNonLoopedAtCoord(
             PTFX_EFFECT,
-            GetEntityCoords(veh),
-            0.0, 0.0, 0.0,
+            pos.x, pos.y, pos.z,
+            0.0, 0.0, heading,
             Config.ExhaustMod.backfireScale,
             false, false, false
         )
@@ -82,11 +87,10 @@ local function StartExhaustThread(veh)
             local curVeh = GetVehiclePedIsIn(ped, false)
 
             if curVeh ~= 0 and curVeh == exhaustVehicle and GetPedInVehicleSeat(exhaustVehicle, -1) == ped then
-                local throttle = GetVehicleAccelerator(curVeh)
+                local throttle = GetVehicleThrottleOffset(curVeh)
                 local rpm      = GetVehicleCurrentRpm(curVeh)
 
-                -- Detect: was at high RPM + throttle, just released throttle
-                local wasArmed   = prevRpm > Config.ExhaustMod.rpmThreshold and prevThrottle > 0.3
+                local wasArmed    = prevRpm > Config.ExhaustMod.rpmThreshold and prevThrottle > 0.3
                 local throttleOff = throttle < Config.ExhaustMod.throttleMax
 
                 if wasArmed and throttleOff then
@@ -110,7 +114,6 @@ end
 --  EVENTS
 -- ─────────────────────────────────────────────
 
--- silent = true when called from reapplyMods
 AddEventHandler('fcrp_tuner:client:exhaustInstalled', function(veh, silent)
     if not veh or not DoesEntityExist(veh) then return end
     exhaustInstalled = true
@@ -127,16 +130,12 @@ AddEventHandler('fcrp_tuner:client:exhaustRemoved', function(veh)
     exhaustThread    = nil
 end)
 
--- Fix: ensure particles are cleaned up on resource stop
 AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
     exhaustInstalled = false
     exhaustVehicle   = nil
     exhaustThread    = nil
-    -- Also clean up drift chip particles if somehow still running
     local ped = PlayerPedId()
     local veh = GetVehiclePedIsIn(ped, false)
-    if veh ~= 0 then
-        RemoveParticleFxFromEntity(veh)
-    end
+    if veh ~= 0 then RemoveParticleFxFromEntity(veh) end
 end)

@@ -8,7 +8,7 @@ local _strings = {
     vehicle_blacklisted    = 'This vehicle cannot be modified here.',
 
     -- Engine Chip
-    engine_chip_installed  = 'Engine chip installed! +%d%% top speed.',
+    engine_chip_installed  = 'Engine chip installed! +%d%% top speed & torque.',
     engine_chip_removed    = 'Engine chip removed.',
 
     -- Drift Chip

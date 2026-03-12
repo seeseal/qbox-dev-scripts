@@ -1,20 +1,22 @@
 -- ╔══════════════════════════════════════════════╗
 -- ║     fcrp_tuner  |  client/nitrous.lua       ║
 -- ║  Pressure system: 0.0–1.0 tank.             ║
--- ║  Each activation drains Config.Nitrous.pressureDrain.  ║
--- ║  Each nos_canister item refills canisterRefill.        ║
 -- ╚══════════════════════════════════════════════╝
 
-local nosInstalled      = false
-local nosActive         = false
-local nosPressure       = 1.0   -- 0.0 (empty) → 1.0 (full)
-local nosVehicle        = nil
-local nosThread         = nil
-local nosCountdown      = 0.0
--- FIX #7: Store cooldown as real epoch-ms (os.time()*1000) so it survives
--- game-session restarts and stays in sync with the server's os.time() clock.
+local nosInstalled          = false
+local nosActive             = false
+local nosPressure           = 1.0
+local nosVehicle            = nil
+local nosThread             = nil
+local nosCountdown          = 0.0
 local nosCooldownEndEpochMs = 0
 
+-- FIX: Store base handling values at install time so NOS boost is always
+-- applied on top of whatever the vehicle currently has (engine chip, stock, etc.)
+local nosBaseForce  = nil
+local nosBaseSpeed  = nil
+
+-- NOS applies +50% torque (drive force) boost regardless of other mods
 local TORQUE_BOOST = 0.50
 
 local function Notify(msg, ntype, duration)
@@ -22,8 +24,7 @@ local function Notify(msg, ntype, duration)
 end
 
 local function MPHtoMS(mph) return mph * 0.44704 end
--- FIX #7: Use real wall-clock (ms) rather than game timer
-local function NowMs() return os.time() * 1000 end
+local function NowMs() return GetCloudTimeAsInt() * 1000 end
 
 local function CooldownRemainingSec()
     if nosCooldownEndEpochMs <= 0 then return 0 end
@@ -47,15 +48,12 @@ local function UpdateNOSHud()
     if not nosInstalled then return end
     local remaining = CooldownRemainingSec()
     if nosActive then
-        -- Bar shows burn countdown
         UI_UpdateNos('active', math.max(0.0, nosCountdown / Config.Nitrous.boostDuration), string.format('%.1fs', nosCountdown))
     elseif remaining > 0 then
-        -- Bar shows cooldown progress (drains down)
         UI_UpdateNos('cooldown', remaining / Config.Nitrous.cooldown, FormatCooldown(remaining))
     elseif IsEmpty() then
         UI_UpdateNos('empty', 0.0, '')
     else
-        -- Bar shows tank pressure
         UI_UpdateNos('ready', nosPressure, string.format('%d%%', math.floor(nosPressure * 100)))
     end
 end
@@ -82,14 +80,16 @@ local function ActivateNOS(veh)
     -- Drain pressure immediately on activation (client-authoritative display)
     nosPressure = math.max(0.0, nosPressure - Config.Nitrous.pressureDrain)
 
-    local lockedHealth   = GetVehicleEngineHealth(veh)
-    local baseDriveForce = GetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce')
-    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce', baseDriveForce * (1.0 + TORQUE_BOOST))
+    -- FIX: Snapshot CURRENT handling values right now so the +20% torque boost
+    -- stacks correctly whether engine chip is installed or not.
+    local curForce = GetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce')
+    local curSpeed = GetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel')
 
-    local boostMS = MPHtoMS(Config.Nitrous.boostMPH)
-    local baseSpd = GetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel')
-    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', baseSpd + boostMS)
+    -- Apply boost relative to whatever the vehicle currently has
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce',      curForce * (1.0 + TORQUE_BOOST))
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', curSpeed + MPHtoMS(Config.Nitrous.boostMPH))
 
+    local lockedHealth = GetVehicleEngineHealth(veh)
     SetVehicleEngineOn(veh, true, true, false)
     Notify(Lang:t('nos_activated'), 'success', 2000)
     TriggerServerEvent('fcrp_tuner:server:nosUsed', NetworkGetNetworkIdFromEntity(veh))
@@ -106,8 +106,9 @@ local function ActivateNOS(veh)
         UpdateNOSHud()
     end
 
-    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce',      baseDriveForce)
-    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', baseSpd)
+    -- Restore exactly what we had before activation (not the base install values)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce',      curForce)
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveMaxFlatVel', curSpeed)
 
     nosActive    = false
     nosCountdown = 0.0
@@ -119,6 +120,10 @@ end
 
 -- ─────────────────────────────────────────────
 --  NOS CANISTER ITEM USE
+--  FIX: The server hook fires fcrp_tuner:client:useNosCanister which then
+--  triggers the server event. The old code triggered server directly from
+--  the client event, causing a double-consume. Now the client event handles
+--  the progress bar and fires the server event on completion.
 -- ─────────────────────────────────────────────
 
 RegisterNetEvent('fcrp_tuner:client:useNosCanister', function()
@@ -133,7 +138,7 @@ RegisterNetEvent('fcrp_tuner:client:useNosCanister', function()
         Notify(Lang:t('nos_not_installed'), 'error', 3000)
         return
     end
-    if not IsEmpty() and nosPressure >= 1.0 then
+    if nosPressure >= 1.0 then
         Notify('NOS tank is already full.', 'inform', 3000)
         return
     end
@@ -153,10 +158,11 @@ end)
 
 -- Server confirms refill and sends new pressure level
 RegisterNetEvent('fcrp_tuner:client:nosRefillConfirmed', function(newPressure)
-    nosPressure             = newPressure or math.min(1.0, nosPressure + Config.Nitrous.canisterRefill)
-    nosCooldownEndEpochMs   = 0
+    nosPressure           = newPressure or math.min(1.0, nosPressure + Config.Nitrous.canisterRefill)
+    nosCooldownEndEpochMs = 0
     local pct = math.floor(nosPressure * 100)
     Notify(string.format('✅ NOS refilled — tank at %d%%', pct), 'success', 4000)
+    UpdateNOSHud()
 end)
 
 -- ─────────────────────────────────────────────
@@ -171,7 +177,7 @@ local function StartNOSThread(veh)
         while nosInstalled do
             Wait(0)
             hudTick = hudTick + 1
-            if hudTick >= 30 then   -- update HUD ~2× per second
+            if hudTick >= 30 then
                 hudTick = 0
                 UpdateNOSHud()
             end
@@ -203,18 +209,16 @@ end
 --  EVENTS
 -- ─────────────────────────────────────────────
 
--- FIX #7: cooldownUntil is now raw epoch-ms from server (nos_cooldown_until column).
--- Compare directly against NowMs() (os.time()*1000) — no game-timer conversion needed.
 AddEventHandler('fcrp_tuner:client:nosInstalled', function(veh, silent, cooldownUntil, pressure)
     if nosInstalled then
         nosInstalled = false
         Wait(0)
     end
-    nosInstalled            = true
-    nosVehicle              = veh
-    nosActive               = false
-    nosPressure             = pressure or 1.0
-    nosCooldownEndEpochMs   = (cooldownUntil and cooldownUntil > NowMs()) and cooldownUntil or 0
+    nosInstalled          = true
+    nosVehicle            = veh
+    nosActive             = false
+    nosPressure           = pressure or 1.0
+    nosCooldownEndEpochMs = (cooldownUntil and cooldownUntil > NowMs()) and cooldownUntil or 0
     if not silent then Notify(Lang:t('nos_installed'), 'success', 5000) end
     StartNOSThread(veh)
 end)

@@ -92,16 +92,16 @@
 
   /* ── SHOP MENU ───────────────────────────── */
   #shop-panel {
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    top: 50%; right: 24px;
+    transform: translateY(-50%);
     width: 460px;
     max-height: 80vh;
     animation: panelIn 0.2s cubic-bezier(0.34,1.56,0.64,1);
   }
 
   @keyframes panelIn {
-    from { opacity:0; transform: translate(-50%,-50%) scale(0.94); }
-    to   { opacity:1; transform: translate(-50%,-50%) scale(1); }
+    from { opacity:0; transform: translateY(-50%) scale(0.94); }
+    to   { opacity:1; transform: translateY(-50%) scale(1); }
   }
 
   .shop-body { padding: 12px; overflow-y: auto; flex: 1; }

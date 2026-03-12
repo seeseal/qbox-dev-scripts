@@ -24,6 +24,18 @@ CREATE TABLE IF NOT EXISTS `fcrp_tuner_mods` (
     `has_exhaust`        TINYINT(1)   NOT NULL DEFAULT 0,
     `fake_plate`         VARCHAR(15)  DEFAULT NULL COMMENT 'Custom plate text. NULL = real plate shown.',
     `vehicle_value`      INT          NOT NULL DEFAULT 0 COMMENT 'Vehicle value in dollars for chip price bonus',
+    -- Original handling values captured before engine chip is applied
+    `orig_speed`         FLOAT        DEFAULT NULL COMMENT 'fInitialDriveMaxFlatVel before engine chip',
+    `orig_force`         FLOAT        DEFAULT NULL COMMENT 'fInitialDriveForce before engine chip',
+    `orig_inertia`       FLOAT        DEFAULT NULL COMMENT 'fDriveInertia before engine chip',
+    -- Original handling values captured before drift chip is applied
+    `orig_traction_max`  FLOAT        DEFAULT NULL COMMENT 'fTractionCurveMax before drift chip',
+    `orig_traction_min`  FLOAT        DEFAULT NULL COMMENT 'fTractionCurveMin before drift chip',
+    `orig_traction_loss` FLOAT        DEFAULT NULL COMMENT 'fTractionLossMult before drift chip',
+    `orig_drag`          FLOAT        DEFAULT NULL COMMENT 'fInitialDragCoeff before drift chip',
+    `orig_drive_force`   FLOAT        DEFAULT NULL COMMENT 'fInitialDriveForce before drift chip',
+    `orig_steering_lock` FLOAT        DEFAULT NULL COMMENT 'fSteeringLock before drift chip',
+    `orig_anti_roll`     FLOAT        DEFAULT NULL COMMENT 'fAntiRollBarForce before drift chip',
     PRIMARY KEY (`plate`),
     INDEX `idx_engine_chip` (`engine_chip`),
     INDEX `idx_drift_chip`  (`drift_chip`)
@@ -33,24 +45,19 @@ CREATE TABLE IF NOT EXISTS `fcrp_tuner_mods` (
 
 -- ─────────────────────────────────────────────
 --  OX_INVENTORY ITEMS
---  Add these to your ox_inventory items.lua / items folder
---  if they are not already defined.
+--  Your server uses flat-file items (items.lua / items folder).
+--  Add the following entries manually to your ox_inventory items file:
 --
---  The INSERT IGNORE below adds them to the standard
---  ox_inventory `items` table used by some server setups.
---  If your setup uses flat-file items, add them manually.
+--  { name = 's3_chip',          label = 'S3 Engine Chip',   weight = 500,  stack = false, close = true  }
+--  { name = 'drift_chip',       label = 'Drift Chip',        weight = 500,  stack = false, close = true  }
+--  { name = 'stance_rod',       label = 'Stance Rod',        weight = 800,  stack = false, close = true  }
+--  { name = 'nos_canister',     label = 'NOS Canister',      weight = 1200, stack = false, close = true  }
+--  { name = 'damaged_parts',    label = 'Damaged Parts',     weight = 500,  stack = true,  close = false }
+--  { name = 'electronic_parts', label = 'Electronic Parts',  weight = 300,  stack = true,  close = false }
+--  { name = 'metal_scrap',      label = 'Metal Scrap',       weight = 600,  stack = true,  close = false }
+--  { name = 'rubber',           label = 'Rubber',            weight = 400,  stack = true,  close = false }
+--  { name = 'compressed_gas',   label = 'Compressed Gas',    weight = 900,  stack = true,  close = false }
 -- ─────────────────────────────────────────────
-
-INSERT IGNORE INTO `items` (`name`, `label`, `weight`, `stack`, `close`, `description`) VALUES
-    ('s3_chip',           'S3 Engine Chip',   500,  false, true,  'An illegal performance chip that boosts top speed by 15%.'),
-    ('drift_chip',        'Drift Chip',        500,  false, true,  'Reduces traction and makes wheels spin more freely.'),
-    ('stance_rod',        'Stance Rod',        800,  false, true,  'Adjustable suspension rod used to tune camber and ride height.'),
-    ('nos_canister',      'NOS Canister',      1200, false, true,  'Pressurised nitrous oxide. Use while in a vehicle to refill the NOS kit.'),
-    ('damaged_parts',     'Damaged Parts',     500,  true,  false, 'Salvaged components from supply runs. Used to craft tuner chips and kits.'),
-    ('electronic_parts',  'Electronic Parts',  300,  true,  false, 'Various electronic components used in chip crafting.'),
-    ('metal_scrap',       'Metal Scrap',       600,  true,  false, 'Salvaged metal pieces used in fabrication.'),
-    ('rubber',            'Rubber',            400,  true,  false, 'High-grade rubber used in drift chip assembly.'),
-    ('compressed_gas',    'Compressed Gas',    900,  true,  false, 'Pressurised gas cylinder used to fill NOS canisters.');
 
 -- ─────────────────────────────────────────────
 --  MIGRATION  (run once on existing installs)
@@ -58,16 +65,21 @@ INSERT IGNORE INTO `items` (`name`, `label`, `weight`, `stack`, `close`, `descri
 -- ─────────────────────────────────────────────
 
 ALTER TABLE `fcrp_tuner_mods`
-    ADD COLUMN IF NOT EXISTS `nos_pressure`   FLOAT       NOT NULL DEFAULT 1.0
-        COMMENT '0.0 = empty, 1.0 = full. Drains per activation, refilled by nos_canister item.',
-    ADD COLUMN IF NOT EXISTS `fake_plate`     VARCHAR(15) DEFAULT NULL
-        COMMENT 'Custom plate text displayed on the vehicle. NULL = real plate shown.',
-    ADD COLUMN IF NOT EXISTS `vehicle_value`  INT         NOT NULL DEFAULT 0
-        COMMENT 'Vehicle value in dollars, reported by client on ramp entry for chip price bonus.';
+    ADD COLUMN IF NOT EXISTS `nos_pressure`       FLOAT       NOT NULL DEFAULT 1.0,
+    ADD COLUMN IF NOT EXISTS `fake_plate`         VARCHAR(15) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `vehicle_value`      INT         NOT NULL DEFAULT 0,
+    -- Engine chip originals (stock handling values captured at install time)
+    ADD COLUMN IF NOT EXISTS `orig_speed`         FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_force`         FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_inertia`       FLOAT       DEFAULT NULL,
+    -- Drift chip originals
+    ADD COLUMN IF NOT EXISTS `orig_traction_max`  FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_traction_min`  FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_traction_loss` FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_drag`          FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_drive_force`   FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_steering_lock` FLOAT       DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `orig_anti_roll`     FLOAT       DEFAULT NULL;
 
 -- Seed pressure for any existing NOS installs (treat them as full)
 UPDATE `fcrp_tuner_mods` SET `nos_pressure` = 1.0 WHERE `nos` = 1 AND `nos_pressure` = 0;
-
--- Insert damaged_parts into ox_inventory items table (if using DB-backed items)
-INSERT IGNORE INTO `items` (`name`, `label`, `weight`, `stack`, `close`, `description`) VALUES
-    ('damaged_parts', 'Damaged Parts', 500, true, false, 'Salvaged components from supply runs. Used to craft tuner chips and kits.');
