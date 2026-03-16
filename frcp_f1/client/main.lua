@@ -121,7 +121,7 @@ local function SpawnRaceManagerNPC()
         { label='Leaderboard',       icon='fas fa-ranking-star',
           action=function() TriggerServerEvent('fcrp_f1:sv:requestLeaderboard') end },
         { label='Claim Weekly Reward',icon='fas fa-gift',
-          action=function() TriggerServerEvent('f1reward') end },
+          action=function() TriggerServerEvent('fcrp_f1:sv:claimWeeklyReward') end }, -- FIX #1
     })
     DBG('NPC spawned.')
 end
@@ -904,13 +904,12 @@ end)
 -- ============================================================
 -- RESULTS NUI
 -- ============================================================
+-- BUG FIX #5: showResults handler moved to client/nui_callbacks.lua
+-- as 'fcrp_f1:cl:showResults_NUI' with corrected SetNuiFocus(true, false).
+-- This original handler is kept as a no-op fallback for external resources.
 RegisterNetEvent('fcrp_f1:cl:showResults', function(data)
-    SendNUIMessage({
-        action='showResults', results=data.results, subtitle=data.subtitle,
-        delay=data.delay, flHolder=data.flHolder, flTime=data.flTime,
-        xpTable=data.xpTable, mmrTable=data.mmrTable, winXp=data.winXp,
-    })
-    SetNuiFocus(false, false)
+    -- Handled by cl:showResults_NUI in nui_callbacks.lua
+    DBG('[COMPAT] cl:showResults received — NUI handled by _NUI variant')
 end)
 
 -- ============================================================
@@ -1236,7 +1235,10 @@ end)
 -- ============================================================
 -- KEYBINDS
 -- ============================================================
-RegisterKeyMapping('fcrp_f1_menu', 'Open F1 Race Manager', 'keyboard', 'F5')
+-- BUG FIX #4: F5 keybind moved to client/nui_callbacks.lua as
+-- 'fcrp_f1_nui' to avoid double-open with the new NUI dashboard.
+-- The old command below is kept as a non-bound fallback only.
+-- RegisterKeyMapping('fcrp_f1_menu', 'Open F1 Race Manager', 'keyboard', 'F5')
 RegisterCommand('fcrp_f1_menu', function()
     TriggerServerEvent('fcrp_f1:sv:requestMenuOpen')
 end, false)
