@@ -367,3 +367,5 @@ Config.Auth = {
     enabled = false,
     codes   = { 'YOURCODE123' },
 }
+
+Config.WinXP = Config.XP[1]   -- P1 XP award (defaults to first entry in Config.XP)
