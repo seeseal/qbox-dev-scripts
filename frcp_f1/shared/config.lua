@@ -75,6 +75,10 @@ Config.FastestLapXP = 15      -- bonus XP for fastest lap of the race
 --            P1   P2   P3   P4   P5   P6   P7   P8
 Config.XP  = { 100, 80, 60, 40, 25, 15,  8,  4 }
 
+-- BUG FIX #7: Config.WinXP was referenced in server/main.lua but never
+-- defined here, falling back to Config.XP[1] silently. Now explicit.
+Config.WinXP = Config.XP[1]   -- XP awarded to P1 (defaults to first XP table entry)
+
 -- MMR gain per position (positive = gain, negative = loss)
 -- Loss scales with field size: MmrLostBase * finishing_position
 Config.MmrGain      = { 50, 35, 22, 12, 4, -4, -10, -18 }
@@ -367,5 +371,3 @@ Config.Auth = {
     enabled = false,
     codes   = { 'YOURCODE123' },
 }
-
-Config.WinXP = Config.XP[1]   -- P1 XP award (defaults to first entry in Config.XP)
