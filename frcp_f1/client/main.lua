@@ -1,5 +1,5 @@
 -- ============================================================
---  FLAME CITY F1 — client/main.lua  v2.0
+--  FLAME CITY F1 — client/main.lua  v3.0
 --  Qbox + ox_target | ox_lib
 -- ============================================================
 
@@ -12,7 +12,26 @@ local currentLap     = 1
 local currentCP      = 1
 local currentBlip    = nil
 
--- ── Leaderboard / gap ────────────────────────────────────────
+-- ── Timing ───────────────────────────────────────────────────
+local lapStartMs        = nil   -- GetGameTimer() at lap start
+local sectorStartMs     = nil
+local sectorTimes       = {}    -- { {label, ms, delta} }
+local bestLapMs         = nil   -- personal best this session
+local bestSectorMs      = { [1]=nil, [2]=nil, [3]=nil }
+local currentSectorIdx  = 1
+local raceStartMs       = nil
+local fastestLapMs      = nil   -- personal fastest this race
+local lapTimesThisRace  = {}
+local lapIsValid        = true
+local offCourseTimer    = 0
+
+-- ── Stats to report to server ────────────────────────────────
+local pitCount   = 0
+local drsCount   = 0
+local engineOk   = true
+local currentTyre= 'medium'
+
+-- ── Leaderboard ──────────────────────────────────────────────
 local leaderboardData = {}
 local myGapToLeader   = nil
 
@@ -20,267 +39,225 @@ local myGapToLeader   = nil
 local drsOpen      = false
 local drsZoneIndex = 0
 
--- ── Engine damage ─────────────────────────────────────────────
-local engineStatus    = 'OK'
-local engineWarnShown = ''
+-- ── Engine ───────────────────────────────────────────────────
+local engineStatus = 'OK'
 
--- ── Director cam ──────────────────────────────────────────────
-local directorCam    = nil
-local directorTarget = nil
+-- ── Pit ──────────────────────────────────────────────────────
+local hasPitted      = false
+local pitZoneAdded   = false
+local inPitSpeedo    = false
 
--- ── Formation lap ─────────────────────────────────────────────
+-- ── Race line / formation ────────────────────────────────────
 local formationActive = false
 local safetyCar       = nil
 local safetyCarBlip   = nil
 local safetyCarActive = false
 
--- ── Pit stop ──────────────────────────────────────────────────
-local currentTire    = 'medium'   -- starting compound
-local tireLapsOnSet  = 0          -- laps driven on current set
-local hasPitted      = false
-local inPitZone      = false
-local pitZoneAdded   = false
-
--- ── Liveries ──────────────────────────────────────────────────
+-- ── Liveries ─────────────────────────────────────────────────
 local usedLiveries = {}
+
+
+-- ── Organiser panel state ────────────────────────────────────
+local slotLabels      = {}
+local currentPlayerMap= {}
+local directorCam     = nil
+local directorTarget  = nil
 
 -- ============================================================
 -- HELPERS
 -- ============================================================
 local function Notify(key, vars, ntype)
     local str = Config.Notify[key] or key
-    if vars then
-        for k, v in pairs(vars) do
-            str = str:gsub('{' .. k .. '}', tostring(v))
-        end
-    end
-    lib.notify({ title = 'Flame City GP', description = str, type = ntype or 'inform' })
+    if vars then for k,v in pairs(vars) do str = str:gsub('{'..k..'}', tostring(v)) end end
+    lib.notify({ title='Flame City GP', description=str, type=ntype or 'inform' })
 end
 
 local function DBG(...)
-    if Config.Debug then print('[FRCP_F1][CLIENT]', ...) end
+    if Config.Debug then print('[FCRP_F1][CL]', ...) end
 end
 
+local function FmtMs(ms)
+    if not ms then return '—' end
+    local s = ms / 1000
+    return string.format('%d:%06.3f', math.floor(s/60), s % 60)
+end
+
+local function GetCurrentMs() return GetGameTimer() end
+
 -- ============================================================
--- 1. RACE MANAGER NPC  (ox_target)
+-- RACE MANAGER NPC
 -- ============================================================
 local npcHandle = nil
+local npcProp   = nil
 
 local function SpawnRaceManagerNPC()
     local cfg = Config.RaceManagerNPC
     if not cfg.enabled then return end
-
-    local model = cfg.model
-    if type(model) == 'string' then model = joaat(model) end
+    local model = type(cfg.model) == 'string' and joaat(cfg.model) or cfg.model
     lib.requestModel(model)
-
-    npcHandle = CreatePed(4,
-        model,
-        cfg.coords.x, cfg.coords.y, cfg.coords.z - 1.0, cfg.coords.w,
-        false, true)
+    npcHandle = CreatePed(4, model, cfg.coords.x, cfg.coords.y, cfg.coords.z-1.0, cfg.coords.w, false, true)
     SetEntityInvincible(npcHandle, true)
     SetBlockingOfNonTemporaryEvents(npcHandle, true)
     FreezeEntityPosition(npcHandle, true)
     SetModelAsNoLongerNeeded(model)
-
-    -- Give pedestrian a racing-suit-ish look via a clipboard prop
-    local propModel = joaat('prop_cs_clipboard')
-    lib.requestModel(propModel)
-    local prop = CreateObject(propModel, 0, 0, 0, true, true, true)
-    AttachEntityToEntity(prop, npcHandle, GetPedBoneIndex(npcHandle, 28422),
-        0.11, 0.02, 0.0, 10.0, 0.0, 0.0, true, true, false, true, 1, true)
-
+    -- Clipboard prop
+    local clipModel = joaat('prop_cs_clipboard')
+    lib.requestModel(clipModel)
+    npcProp = CreateObject(clipModel, 0,0,0, true, true, true)
+    AttachEntityToEntity(npcProp, npcHandle, GetPedBoneIndex(npcHandle, 28422), 0.11, 0.02, 0.0, 10.0, 0.0, 0.0, true, true, false, true, 1, true)
     exports['ox_target']:addLocalEntity(npcHandle, {
-        {
-            label  = cfg.label,
-            icon   = 'fas fa-flag-checkered',
-            action = function()
-                TriggerServerEvent('frcp_f1:server:requestMenuOpen')
-            end,
-        },
-        {
-            label  = 'My F1 Stats',
-            icon   = 'fas fa-chart-line',
-            action = function()
-                TriggerServerEvent('frcp_f1:server:requestMyStats')
-            end,
-        },
+        { label=cfg.label,           icon='fas fa-flag-checkered',
+          action=function() TriggerServerEvent('fcrp_f1:sv:requestMenuOpen') end },
+        { label='My Stats',          icon='fas fa-chart-line',
+          action=function() TriggerServerEvent('fcrp_f1:sv:requestMyStats') end },
+        { label='Leaderboard',       icon='fas fa-ranking-star',
+          action=function() TriggerServerEvent('fcrp_f1:sv:requestLeaderboard') end },
+        { label='Claim Weekly Reward',icon='fas fa-gift',
+          action=function() TriggerServerEvent('f1reward') end },
     })
-    DBG('Race Manager NPC spawned.')
+    DBG('NPC spawned.')
 end
-
 CreateThread(SpawnRaceManagerNPC)
 
 -- ============================================================
--- 2. ORGANISER PANEL  (ox_lib context menu)
+-- ORGANISER PANEL
 -- ============================================================
-local slotLabels      = {}
-local currentPlayerMap = {}
-
 local function OpenOrganizerMenu()
     local totalSlots = #Config.GridSpots
-    local slotOptions = {}
+    local slotOpts   = {}
     for i = 1, totalSlots do
-        local idx      = i
+        local idx = i
         local assigned = slotLabels[idx]
-        local desc, iconColor
-        if assigned then
-            desc      = '✅  ' .. assigned
-            iconColor = '#00cc66'
-        else
-            desc      = 'Tap to assign a driver'
-            iconColor = '#888888'
-        end
-        table.insert(slotOptions, {
-            title       = string.format('P%d%s', idx, idx == 1 and ' — Pole' or ''),
-            description = desc,
-            icon        = 'user',
-            iconColor   = iconColor,
-            onSelect    = function() AssignSlot(idx, currentPlayerMap) end,
-        })
+        slotOpts[#slotOpts+1] = {
+            title=string.format('P%d%s', idx, idx==1 and ' — Pole' or ''),
+            description=assigned and ('✅ '..assigned) or 'Tap to assign',
+            icon='user', iconColor=assigned and '#00cc66' or '#888888',
+            onSelect=function() AssignSlot(idx) end,
+        }
     end
-
     local options = {}
-
-    -- STEP 1 — GRID
-    table.insert(options, { title='STEP 1  ·  GRID', disabled=true, icon='table-cells', iconColor='#e10600' })
-    for _, o in ipairs(slotOptions) do table.insert(options, o) end
-    table.insert(options, {
-        title='Clear All Slots', icon='rotate-left', iconColor='#cc4444',
-        onSelect=function()
-            slotLabels = {}
-            TriggerServerEvent('frcp_f1:server:clearGrid')
-            OpenOrganizerMenu()
-        end,
-    })
-    table.insert(options, {
-        title='Prepare Grid',
-        description='Spawn cars and freeze drivers on their grid spots',
+    table.insert(options, {title='STEP 1  ·  GRID', disabled=true, icon='table-cells', iconColor='#e10600'})
+    for _,o in ipairs(slotOpts) do table.insert(options, o) end
+    table.insert(options, {title='Clear All Slots', icon='rotate-left', iconColor='#cc4444',
+        onSelect=function() slotLabels={}; TriggerServerEvent('fcrp_f1:sv:clearGrid'); OpenOrganizerMenu() end})
+    table.insert(options, {title='Prepare Grid', description='Spawn cars on grid spots',
         icon='flag', iconColor='#ffcc00',
-        onSelect=function()
-            TriggerServerEvent('frcp_f1:server:setupGrid')
-            OpenOrganizerMenu()
-        end,
-    })
-
-    -- STEP 2 — FORMATION LAP
-    table.insert(options, { title='STEP 2  ·  FORMATION LAP', disabled=true, icon='shield-halved', iconColor='#e10600' })
-    table.insert(options, {
-        title='Deploy Safety Car',
-        description='SC leads drivers from grid to start',
-        icon='car', iconColor='#ffaa00',
-        onSelect=function()
-            TriggerServerEvent('frcp_f1:server:deploySafetyCar')
-            OpenOrganizerMenu()
-        end,
-    })
-
-    -- STEP 3 — RACE START
-    table.insert(options, { title='STEP 3  ·  RACE START', disabled=true, icon='traffic-light', iconColor='#e10600' })
-    table.insert(options, {
-        title='START RACE',
-        description='Despawn SC · Freeze grid · Lights out',
+        onSelect=function() TriggerServerEvent('fcrp_f1:sv:setupGrid'); OpenOrganizerMenu() end})
+    table.insert(options, {title='STEP 2  ·  FORMATION LAP', disabled=true, icon='shield-halved', iconColor='#e10600'})
+    table.insert(options, {title='Deploy Safety Car', icon='car', iconColor='#ffaa00',
+        onSelect=function() TriggerServerEvent('fcrp_f1:sv:deploySafetyCar'); OpenOrganizerMenu() end})
+    table.insert(options, {title='STEP 3  ·  RACE START', disabled=true, icon='traffic-light', iconColor='#e10600'})
+    table.insert(options, {title='START RACE', description='Despawn SC · Freeze grid · Lights out',
         icon='flag-checkered', iconColor='#00cc44',
-        onSelect=function()
-            TriggerServerEvent('frcp_f1:server:startGlobalRace')
-            OpenOrganizerMenu()
-        end,
-    })
-
-    -- TOOLS
-    table.insert(options, { title='TOOLS', disabled=true, icon='wrench', iconColor='#888888' })
-    table.insert(options, {
-        title='Race Director Camera',
-        description='Cinematic overhead view of any driver',
-        icon='video', iconColor='#88aaff',
-        onSelect=function() OpenDirectorCamMenu() end,
-    })
-    table.insert(options, {
-        title='Force End / Reset',
-        description='Emergency stop — teleports everyone',
-        icon='circle-xmark', iconColor='#ff4444',
-        onSelect=function()
-            TriggerServerEvent('frcp_f1:server:forceEnd')
-            OpenOrganizerMenu()
-        end,
-    })
-
-    lib.registerContext({ id='f1_organiser', title='  FLAME CITY GP  ·  Race Control', options=options })
+        onSelect=function() TriggerServerEvent('fcrp_f1:sv:startGlobalRace'); OpenOrganizerMenu() end})
+    table.insert(options, {title='TOOLS', disabled=true, icon='wrench', iconColor='#888888'})
+    table.insert(options, {title='Race Director Camera', icon='video', iconColor='#88aaff',
+        onSelect=function() OpenDirectorCamMenu() end})
+    table.insert(options, {title='Force End / Reset', icon='circle-xmark', iconColor='#ff4444',
+        onSelect=function() TriggerServerEvent('fcrp_f1:sv:forceEnd'); OpenOrganizerMenu() end})
+    lib.registerContext({id='f1_organiser', title='  FLAME CITY GP  ·  Race Control', options=options})
     lib.showContext('f1_organiser')
 end
 
--- Server tells the client whether to open organiser or spectator view
-RegisterNetEvent('frcp_f1:client:openOrganizerMenu', function(playerList)
+RegisterNetEvent('fcrp_f1:cl:openOrganizerMenu', function(playerList)
     currentPlayerMap = {}
-    for _, p in ipairs(playerList) do currentPlayerMap[p.id] = p.name end
+    for _,p in ipairs(playerList) do currentPlayerMap[p.id]=p.name end
+    OpenOrganizerMenu()
+end)
+RegisterNetEvent('fcrp_f1:cl:slotAssigned', function(slot, pid, name)
+    slotLabels[slot] = string.format('ID %d — %s', pid, name)
     OpenOrganizerMenu()
 end)
 
-RegisterNetEvent('frcp_f1:client:openStatsMenu', function(stats)
-    lib.registerContext({
-        id    = 'f1_stats_view',
-        title = '🏎️ My F1 Stats',
-        options = {
-            { title='XP',     description=tostring(stats.xp),     icon='star',           disabled=true },
-            { title='Rating', description=tostring(stats.rating),  icon='ranking-star',   disabled=true },
-            { title='Wins',   description=tostring(stats.wins),    icon='trophy',         disabled=true },
-            { title='Races',  description=tostring(stats.races),   icon='flag-checkered', disabled=true },
-        }
-    })
-    lib.showContext('f1_stats_view')
-end)
-
-RegisterNetEvent('frcp_f1:client:slotAssigned', function(slot, playerId, name)
-    slotLabels[slot] = string.format('ID %d — %s', playerId, name)
-    OpenOrganizerMenu()
-end)
-
-function AssignSlot(slot, playerMap)
-    local result = lib.inputDialog('Assign P' .. slot, {
-        { type='number', label='Player Server ID', placeholder='e.g. 5', required=true, min=1 }
+function AssignSlot(slot)
+    local result = lib.inputDialog('Assign P'..slot, {
+        {type='number', label='Player Server ID', placeholder='e.g. 5', required=true, min=1}
     })
     if not result or not result[1] then OpenOrganizerMenu(); return end
-    local targetId = tonumber(result[1])
-    if not targetId then
-        lib.notify({ title='Invalid ID', type='error' }); OpenOrganizerMenu(); return
-    end
-    TriggerServerEvent('frcp_f1:server:assignSlot', slot, targetId)
+    local tid = tonumber(result[1])
+    if not tid then lib.notify({title='Invalid ID', type='error'}); OpenOrganizerMenu(); return end
+    TriggerServerEvent('fcrp_f1:sv:assignSlot', slot, tid)
 end
 
 -- ============================================================
--- 3. RACE DIRECTOR CAMERA
+-- STATS / LEADERBOARD MENUS
+-- ============================================================
+RegisterNetEvent('fcrp_f1:cl:openStatsMenu', function(stats, history)
+    local bLap = stats.best_lap_ms and FmtMs(stats.best_lap_ms) or '—'
+    local opts  = {
+        {title='MMR',         description=tostring(stats.mmr or 1500), icon='ranking-star', disabled=true},
+        {title='XP',          description=tostring(stats.xp or 0),     icon='star',         disabled=true},
+        {title='Wins',        description=tostring(stats.wins or 0),    icon='trophy',       disabled=true},
+        {title='Races',       description=tostring(stats.races or 0),   icon='flag-checkered',disabled=true},
+        {title='Podiums',     description=tostring(stats.podiums or 0), icon='medal',        disabled=true},
+        {title='Fastest Laps',description=tostring(stats.fastest_laps or 0), icon='bolt',   disabled=true},
+        {title='Best Lap',    description=bLap,                         icon='stopwatch',    disabled=true},
+    }
+    if history and #history > 0 then
+        table.insert(opts, {title='── Last Races ──', disabled=true, icon='clock'})
+        for _, r in ipairs(history) do
+            local desc = string.format('P%d  %s  |  Best: %s  |  %s',
+                r.position, r.race_time or '?', r.best_lap or '?', r.tyre_used or '?')
+            if r.dq == 1 then desc = 'DQ — ' .. (r.dq_reason or '?') end
+            table.insert(opts, {title=os.date('%d %b', r.race_date and os.time() or os.time()), description=desc, icon='calendar', disabled=true})
+        end
+    end
+    lib.registerContext({id='f1_stats', title='🏎️ My F1 Career', options=opts})
+    lib.showContext('f1_stats')
+end)
+
+RegisterNetEvent('fcrp_f1:cl:showLeaderboard', function(rows)
+    if not rows or #rows == 0 then
+        lib.notify({title='Leaderboard', description='No data yet.', type='inform'}); return
+    end
+    local opts = {}
+    for i, r in ipairs(rows) do
+        opts[#opts+1] = {
+            title=string.format('#%d  %s', i, r.citizenid),
+            description=string.format('MMR: %d  |  Wins: %d  |  Races: %d', r.mmr, r.wins, r.races),
+            icon= i==1 and 'crown' or (i<=3 and 'medal' or 'user'),
+            iconColor= i==1 and '#FFD700' or (i==2 and '#C0C0C0' or (i==3 and '#CD7F32' or '#888888')),
+            disabled=true,
+        }
+    end
+    lib.registerContext({id='f1_lb', title='🏁 F1 Leaderboard — Top 20', options=opts})
+    lib.showContext('f1_lb')
+end)
+
+-- ============================================================
+-- RACE DIRECTOR CAMERA
 -- ============================================================
 function OpenDirectorCamMenu()
     local result = lib.inputDialog('Race Director Camera', {
-        { type='number', label='Target Player Server ID', placeholder='e.g. 3', required=true, min=1 }
+        {type='number', label='Target Player Server ID', placeholder='e.g. 3', required=true, min=1}
     })
     lib.showContext('f1_organiser')
     if not result or not result[1] then return end
-    TriggerServerEvent('frcp_f1:server:getVehicleForCam', tonumber(result[1]))
+    TriggerServerEvent('fcrp_f1:sv:getVehicleForCam', tonumber(result[1]))
 end
 
-RegisterNetEvent('frcp_f1:client:attachDirectorCam', function(netId)
+RegisterNetEvent('fcrp_f1:cl:attachDirectorCam', function(netId)
     StopDirectorCam()
     if not NetworkDoesNetworkIdExist(netId) then
-        lib.notify({ title='Cam Error', description='Vehicle not found', type='error' }); return
+        lib.notify({title='Cam Error', description='Vehicle not found', type='error'}); return
     end
     local veh = NetToVeh(netId)
     if not DoesEntityExist(veh) then
-        lib.notify({ title='Cam Error', description='Vehicle entity missing', type='error' }); return
+        lib.notify({title='Cam Error', description='Entity missing', type='error'}); return
     end
     directorTarget = veh
-    directorCam    = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
+    directorCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     SetCamActive(directorCam, true)
     RenderScriptCams(true, true, 500, true, false)
-    lib.notify({ title='📷 Director Cam ON', description='Press ~INPUT_CELLPHONE_CANCEL~ to exit', type='inform' })
+    lib.notify({title='📷 Director Cam', description='Press Backspace to exit', type='inform'})
     CreateThread(function()
         while directorCam and IsCamActive(directorCam) do
             if not DoesEntityExist(directorTarget) then break end
             if IsControlJustPressed(0, 194) or IsControlJustPressed(0, 177) then break end
-            local pos     = GetEntityCoords(directorTarget)
+            local pos = GetEntityCoords(directorTarget)
             local heading = GetEntityHeading(directorTarget)
-            local rad     = math.rad(heading)
-            SetCamCoord(directorCam, pos.x + math.sin(rad)*8.0, pos.y + math.cos(rad)*8.0, pos.z + 4.0)
+            local rad = math.rad(heading)
+            SetCamCoord(directorCam, pos.x+math.sin(rad)*8.0, pos.y+math.cos(rad)*8.0, pos.z+4.0)
             PointCamAtEntity(directorCam, directorTarget, 0.0, 0.0, 0.5, true)
             SetCamFov(directorCam, 55.0)
             Wait(0)
@@ -293,12 +270,12 @@ function StopDirectorCam()
     if directorCam then
         RenderScriptCams(false, true, 500, true, false)
         DestroyCam(directorCam, false)
-        directorCam = nil; directorTarget = nil
+        directorCam=nil; directorTarget=nil
     end
 end
 
 -- ============================================================
--- 4. BASE PHYSICS
+-- BASE HANDLING
 -- ============================================================
 local BASE_DRIVE_FORCE = Config.F1BaseHandling.fInitialDriveForce
 local BASE_TOP_SPEED   = Config.F1BaseTopSpeed
@@ -312,313 +289,333 @@ local function ApplyF1Handling(veh)
 end
 
 -- ============================================================
--- 5. TIRE COMPOUNDS
+-- TIRE COMPOUNDS
 -- ============================================================
+local function GetEngineDamageMult()
+    if engineStatus=='CRITICAL' then return 0.35
+    elseif engineStatus=='DAMAGED' then return 0.60
+    elseif engineStatus=='WARNING' then return 0.85
+    else return 1.0 end
+end
+
 local function ApplyTireCompound(veh, compound)
     if not DoesEntityExist(veh) then return end
     local c = Config.TireCompounds[compound]
     if not c then return end
-
-    local isDegraded = (currentLap - tireLapsOnSet) > c.laps
-    local df = BASE_DRIVE_FORCE + c.driveForce + (isDegraded and c.degradedForce or 0.0)
-    local tMax = c.tractionMax  + (isDegraded and c.degradedTraction or 0.0)
-    local tMin = c.tractionMin  + (isDegraded and c.degradedTraction * 0.5 or 0.0)
-
-    -- Combine with DRS and engine damage multipliers
-    local dmgMult = GetEngineDamageMult()
-    local drsMult = drsOpen and Config.DRS.driveForceBoost or 0.0
-
-    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce', (df + drsMult) * dmgMult)
+    local isDegraded = (currentLap - 1) >= c.laps  -- 0-based so lap 1 = first lap
+    local df    = BASE_DRIVE_FORCE + c.driveForce + (isDegraded and c.degradedForce or 0.0)
+    local tMax  = c.tractionMax  + (isDegraded and c.degradedTraction or 0.0)
+    local tMin  = c.tractionMin  + (isDegraded and c.degradedTraction*0.5 or 0.0)
+    local drsBoost = drsOpen and Config.DRS.driveForceBoost or 0.0
+    SetVehicleHandlingFloat(veh, 'CHandlingData', 'fInitialDriveForce', (df + drsBoost) * GetEngineDamageMult())
     SetVehicleHandlingFloat(veh, 'CHandlingData', 'fTractionCurveMax',  tMax)
     SetVehicleHandlingFloat(veh, 'CHandlingData', 'fTractionCurveMin',  tMin)
     ModifyVehicleTopSpeed(veh, BASE_TOP_SPEED + c.topSpeedBonus + (drsOpen and Config.DRS.topSpeedBoost or 0.0))
 end
 
--- Check and warn when compound starts degrading
+-- tire wear check
 local lastTireWarn = ''
 local function CheckTireWear()
     if not myRaceCar then return end
-    local c = Config.TireCompounds[currentTire]
+    local c = Config.TireCompounds[currentTyre]
     if not c then return end
-    local lapsOn = currentLap - tireLapsOnSet
-    if lapsOn > c.laps and lastTireWarn ~= currentTire .. tostring(currentLap) then
-        lastTireWarn = currentTire .. tostring(currentLap)
-        Notify('tireWorn', { tire = c.label }, 'warning')
-        ApplyTireCompound(myRaceCar, currentTire)
+    local lapsOn = currentLap - 1
+    if lapsOn >= c.laps and lastTireWarn ~= currentTyre..currentLap then
+        lastTireWarn = currentTyre..currentLap
+        Notify('tireWorn', {tire=c.label}, 'warning')
+        ApplyTireCompound(myRaceCar, currentTyre)
     end
 end
 
 -- ============================================================
--- 6. PIT STOP
+-- PIT STOP
 -- ============================================================
 local function OpenTireMenu()
-    local options = {}
+    local opts = {}
     for id, comp in pairs(Config.TireCompounds) do
         local cid = id
-        table.insert(options, {
-            title       = comp.label,
-            description = ('Lasts ~%d laps  ·  Force +%.2f  ·  Speed +%.0f'):format(
+        opts[#opts+1] = {
+            title=comp.label,
+            description=string.format('~%d laps  ·  Force +%.2f  ·  Speed +%.0f',
                 comp.laps, comp.driveForce, comp.topSpeedBonus),
-            icon        = 'circle',
-            iconColor   = ('rgb(%d,%d,%d)'):format(comp.color[1], comp.color[2], comp.color[3]),
-            onSelect    = function()
-                TriggerServerEvent('frcp_f1:server:pitStop', cid)
-            end,
-        })
+            icon='circle',
+            iconColor=string.format('rgb(%d,%d,%d)', comp.color[1], comp.color[2], comp.color[3]),
+            onSelect=function() TriggerServerEvent('fcrp_f1:sv:pitStop', cid) end,
+        }
     end
-    lib.registerContext({ id='f1_tire_menu', title='🛞 Choose Tire Compound', options=options })
+    lib.registerContext({id='f1_tire_menu', title='🛞 Compound Choice', options=opts})
     lib.showContext('f1_tire_menu')
 end
 
-RegisterNetEvent('frcp_f1:client:doPitStop', function(compound)
+RegisterNetEvent('fcrp_f1:cl:doPitStop', function(compound)
     if not myRaceCar or not DoesEntityExist(myRaceCar) then return end
-
-    -- Freeze car in pit lane
+    lapIsValid = false  -- pit lap is always invalid for fastest-lap purposes
     FreezeEntityPosition(myRaceCar, true)
     SetVehicleEngineOn(myRaceCar, false, true, false)
-
-    -- Progress bar as stop duration
     lib.progressBar({
-        duration = Config.PitStop.stopDuration * 1000,
-        label    = 'Changing tires...',
-        useWhileDead = false,
-        canCancel    = false,
-        disable = { move=true, car=true, mouse=false, combat=true },
+        duration=Config.PitStop.stopDuration*1000,
+        label='Changing tires…',
+        useWhileDead=false, canCancel=false,
+        disable={move=true, car=true, mouse=false, combat=true},
     })
-
-    -- Apply new compound
-    currentTire   = compound
-    tireLapsOnSet = currentLap
+    currentTyre   = compound
     hasPitted     = true
+    pitCount      = pitCount + 1
+    lastTireWarn  = ''
     ApplyTireCompound(myRaceCar, compound)
-
-    -- Unfreeze
     FreezeEntityPosition(myRaceCar, false)
     SetVehicleEngineOn(myRaceCar, true, false, false)
-
     local c = Config.TireCompounds[compound]
-    Notify('pitDone', { tire = c and c.label or compound }, 'success')
+    Notify('pitDone', {tire=c and c.label or compound}, 'success')
+    if OpenClientFunctions and OpenClientFunctions.OnPitExit then
+        OpenClientFunctions.OnPitExit(compound)
+    end
 end)
 
--- Register pit lane zone (called after car spawns)
+-- Register pit zone — called AFTER race starts (not on spawn)
 local function RegisterPitZone()
     if pitZoneAdded or not Config.PitStop.enabled then return end
     pitZoneAdded = true
     local z = Config.PitStop.zone
-
     exports['ox_target']:addBoxZone({
-        coords   = z.coords,
-        size     = z.size,
-        rotation = z.heading,
-        debug    = Config.Debug,
-        options  = {
-            {
-                label  = 'Pit Stop',
-                icon   = 'fas fa-wrench',
-                onSelect = function()
-                    if not isRacing then
-                        lib.notify({ title='Not in a race', type='error' }); return
-                    end
-                    OpenTireMenu()
-                end,
-            },
-        },
+        coords=z.coords, size=z.size, rotation=z.heading,
+        debug=Config.Debug,
+        options={{
+            label='Pit Stop', icon='fas fa-wrench',
+            onSelect=function()
+                if not isRacing then lib.notify({title='Not racing', type='error'}); return end
+                if OpenClientFunctions and OpenClientFunctions.OnPitEntry then
+                    OpenClientFunctions.OnPitEntry()
+                end
+                OpenTireMenu()
+            end,
+        }},
     })
 end
 
 -- ============================================================
--- 7. DRS SYSTEM
+-- DRS
 -- ============================================================
 local function UpdateDRS(coords)
     if not myRaceCar or not DoesEntityExist(myRaceCar) then return end
     if not Config.DRSZones or #Config.DRSZones == 0 then return end
-
-    local wasOpen = drsOpen
-    local newOpen = false
-    local newZone = 0
-
+    local wasOpen = drsOpen; local newOpen = false; local newZone = 0
     for i, zone in ipairs(Config.DRSZones) do
-        local ex = zone.exit.x - zone.entry.x
-        local ey = zone.exit.y - zone.entry.y
-        local ez = zone.exit.z - zone.entry.z
-        local lenSq = ex*ex + ey*ey + ez*ez
-        local t = 0.0
-        if lenSq > 0.0 then
-            local dx = coords.x - zone.entry.x
-            local dy = coords.y - zone.entry.y
-            local dz = coords.z - zone.entry.z
-            t = (dx*ex + dy*ey + dz*ez) / lenSq
+        local ex=zone.exit.x-zone.entry.x; local ey=zone.exit.y-zone.entry.y; local ez=zone.exit.z-zone.entry.z
+        local lenSq=ex*ex+ey*ey+ez*ez; local t=0.0
+        if lenSq>0 then
+            local dx=coords.x-zone.entry.x; local dy=coords.y-zone.entry.y; local dz=coords.z-zone.entry.z
+            t=(dx*ex+dy*ey+dz*ez)/lenSq
         end
-        if t >= 0.0 and t <= 1.0 then
-            local cx = zone.entry.x + t*ex
-            local cy = zone.entry.y + t*ey
-            local cz = zone.entry.z + t*ez
-            local lat = math.sqrt((coords.x-cx)^2+(coords.y-cy)^2+(coords.z-cz)^2)
-            if lat < zone.radius then newOpen=true; newZone=i; break end
+        if t>=0.0 and t<=1.0 then
+            local cx=zone.entry.x+t*ex; local cy=zone.entry.y+t*ey; local cz=zone.entry.z+t*ez
+            if math.sqrt((coords.x-cx)^2+(coords.y-cy)^2+(coords.z-cz)^2) < zone.radius then
+                newOpen=true; newZone=i; break
+            end
         end
     end
-
     if newOpen ~= wasOpen or newZone ~= drsZoneIndex then
-        drsOpen      = newOpen
-        drsZoneIndex = newZone
+        drsOpen=newOpen; drsZoneIndex=newZone
         if drsOpen then
+            drsCount = drsCount + 1
+            TriggerServerEvent('fcrp_f1:sv:drsUsed')
             lib.showTextUI(Config.Notify.drsOpen, {
                 position='bottom-center',
-                style={ backgroundColor='#007a00', color='white',
-                        fontSize='18px', fontWeight='bold', padding='6px 20px', letterSpacing='3px' }
+                style={backgroundColor='#007a00', color='white',
+                       fontSize='18px', fontWeight='bold', padding='6px 20px', letterSpacing='3px'}
             })
-        else
-            lib.hideTextUI()
-        end
-        ApplyTireCompound(myRaceCar, currentTire)
+        else lib.hideTextUI() end
+        ApplyTireCompound(myRaceCar, currentTyre)
     end
 end
 
 -- ============================================================
--- 8. ENGINE DAMAGE
+-- ENGINE DAMAGE
 -- ============================================================
-function GetEngineDamageMult()
-    if engineStatus == 'CRITICAL' then return 0.35
-    elseif engineStatus == 'DAMAGED' then return 0.60
-    elseif engineStatus == 'WARNING' then return 0.85
-    else return 1.0 end
-end
-
 local function UpdateEngineDamage()
     if not myRaceCar or not DoesEntityExist(myRaceCar) then return end
-    local health    = GetVehicleEngineHealth(myRaceCar)
-    local newStatus
-    if health <= Config.EngineHealth.critical then newStatus = 'CRITICAL'
-    elseif health <= Config.EngineHealth.damaged then newStatus = 'DAMAGED'
-    elseif health <= Config.EngineHealth.warning then newStatus = 'WARNING'
-    else newStatus = 'OK' end
-
-    if newStatus ~= engineStatus then
-        engineStatus = newStatus
-        if newStatus == 'WARNING'  then Notify('engineWarning',  nil, 'warning')
-        elseif newStatus == 'DAMAGED'  then Notify('engineDamaged',  nil, 'error')
-        elseif newStatus == 'CRITICAL' then Notify('engineCritical', nil, 'error') end
-        ApplyTireCompound(myRaceCar, currentTire)
+    local health = GetVehicleEngineHealth(myRaceCar)
+    local new
+    if health <= Config.EngineHealth.critical then new='CRITICAL'
+    elseif health <= Config.EngineHealth.damaged then new='DAMAGED'
+    elseif health <= Config.EngineHealth.warning then new='WARNING'
+    else new='OK' end
+    if new ~= engineStatus then
+        engineStatus = new
+        if new == 'WARNING'  then Notify('engineWarning',  nil, 'warning')
+        elseif new == 'DAMAGED'  then Notify('engineDamaged',  nil, 'error')
+        elseif new == 'CRITICAL' then Notify('engineCritical', nil, 'error') end
+        if new ~= 'OK' then
+            engineOk = false
+            TriggerServerEvent('fcrp_f1:sv:engineDamaged')
+        end
+        ApplyTireCompound(myRaceCar, currentTyre)
     end
 end
 
 -- ============================================================
--- 9. RACING LINE
+-- SECTOR TIMING
+-- ============================================================
+local function GetCurrentSector()
+    for i, s in ipairs(Config.Sectors) do
+        if currentCP <= s.endCP then return i end
+    end
+    return #Config.Sectors
+end
+
+local function OnSectorComplete(sectorIdx, ms)
+    local best = bestSectorMs[sectorIdx]
+    local label = (Config.Sectors[sectorIdx] and Config.Sectors[sectorIdx].label) or ('S'..sectorIdx)
+    local timeStr = FmtMs(ms)
+    local notifyKey
+    if not best or ms < best then
+        bestSectorMs[sectorIdx] = ms
+        notifyKey = 'sectorPurple'
+    elseif ms <= (best * 1.02) then
+        notifyKey = 'sectorGreen'
+    else
+        notifyKey = 'sectorYellow'
+    end
+    Notify(notifyKey, {sector=label, time=timeStr}, 'inform')
+    sectorTimes[sectorIdx] = { label=label, ms=ms, str=timeStr }
+    DBG(string.format('Sector %d: %s', sectorIdx, timeStr))
+end
+
+-- ============================================================
+-- RACE LINE
 -- ============================================================
 local function DrawRacingLine(pCoords, target)
     if not Config.RaceLine.enabled then return end
-    if #(pCoords - target) > Config.RaceLine.maxDist then return end
-    local segs    = Config.RaceLine.segments
+    if #(pCoords-target) > Config.RaceLine.maxDist then return end
+    local segs = Config.RaceLine.segments
     local heading = math.deg(math.atan(target.x-pCoords.x, target.y-pCoords.y)) + 180.0
     for i = 1, segs do
-        local frac  = i / segs
-        local x     = pCoords.x + (target.x-pCoords.x)*frac
-        local y     = pCoords.y + (target.y-pCoords.y)*frac
+        local frac = i/segs
+        local x = pCoords.x + (target.x-pCoords.x)*frac
+        local y = pCoords.y + (target.y-pCoords.y)*frac
         local found, gz = GetGroundZFor_3dCoord(x, y, pCoords.z+10.0, false)
-        local z     = found and (gz-0.1) or (pCoords.z-0.3)
-        local alpha = math.floor(220*(1.0-frac*0.6))
-        DrawMarker(24, x, y, z, 0,0,0, 0,0, heading,
-            0.9, 0.9, 0.9, 0, 210, 255, alpha, false, false, 2, nil, nil, false)
+        local z = found and (gz-0.1) or (pCoords.z-0.3)
+        DrawMarker(24, x,y,z, 0,0,0, 0,0,heading, 0.9,0.9,0.9,
+            0, 210, 255, math.floor(220*(1.0-frac*0.6)), false, false, 2, nil, nil, false)
     end
 end
 
 -- ============================================================
--- 10. HUD  (lap / CP / gap / engine / tire)
+-- HUD
 -- ============================================================
+local hudFastestLapFlash = 0   -- timestamp when fastest lap was set
+
 local function DrawRaceHUD(lap, maxLaps, cp, totalCPs)
-    -- Lap
+    -- LAP counter
     SetTextFont(4); SetTextScale(0.0,0.50); SetTextColour(255,255,255,255)
     SetTextOutline(); SetTextEntry('STRING')
     AddTextComponentString(string.format('LAP  %d / %d', lap, maxLaps))
-    DrawText(0.82, 0.83)
+    DrawText(0.82, 0.80)
 
-    -- Checkpoint
-    SetTextFont(0); SetTextScale(0.0,0.30); SetTextColour(160,210,255,200)
+    -- CP
+    SetTextFont(0); SetTextScale(0.0,0.28); SetTextColour(160,210,255,200)
     SetTextOutline(); SetTextEntry('STRING')
     AddTextComponentString(string.format('CP  %d / %d', cp, totalCPs))
-    DrawText(0.82, 0.865)
+    DrawText(0.82, 0.840)
 
-    -- Tire compound
-    local tc = Config.TireCompounds[currentTire]
-    if tc then
-        local r, g, b = table.unpack(tc.color)
-        local lapsOn  = currentLap - tireLapsOnSet
-        local worn    = lapsOn > tc.laps
-        SetTextFont(0); SetTextScale(0.0,0.28); SetTextColour(r, g, b, worn and 150 or 220)
+    -- Best lap
+    if bestLapMs then
+        SetTextFont(4); SetTextScale(0.0,0.26); SetTextColour(170,255,170,220)
         SetTextOutline(); SetTextEntry('STRING')
-        AddTextComponentString(tc.label .. (worn and '  [WORN]' or ''))
-        DrawText(0.82, 0.897)
+        AddTextComponentString('BEST  '..FmtMs(bestLapMs))
+        DrawText(0.82, 0.868)
+    end
+
+    -- Fastest lap flash
+    if GetGameTimer() - hudFastestLapFlash < 4000 then
+        SetTextFont(4); SetTextScale(0.0,0.28); SetTextColour(190,0,255,240)
+        SetTextOutline(); SetTextEntry('STRING')
+        AddTextComponentString('💜 FASTEST LAP')
+        DrawText(0.38, 0.04)
+    end
+
+    -- Tire
+    local tc = Config.TireCompounds[currentTyre]
+    if tc then
+        local r,g,b = table.unpack(tc.color)
+        local lapsOn = currentLap - 1
+        local worn   = lapsOn >= tc.laps
+        SetTextFont(0); SetTextScale(0.0,0.26); SetTextColour(r, g, b, worn and 140 or 220)
+        SetTextOutline(); SetTextEntry('STRING')
+        AddTextComponentString(tc.label..(worn and '  [WORN]' or ''))
+        DrawText(0.82, 0.894)
+    end
+
+    -- Invalid lap banner
+    if not lapIsValid then
+        SetTextFont(4); SetTextScale(0.0,0.28); SetTextColour(255,180,0,255)
+        SetTextOutline(); SetTextEntry('STRING')
+        AddTextComponentString('⚠️  LAP INVALID')
+        DrawText(0.38, 0.08)
     end
 
     -- Gap to leader
     if myGapToLeader then
-        local r, g, b = 255, 255, 255
-        if myGapToLeader == 'LEADER' then r,g,b=255,215,0
-        elseif myGapToLeader:sub(1,1) == '+' then r,g,b=255,100,100 end
-        SetTextFont(4); SetTextScale(0.0,0.34); SetTextColour(r,g,b,230)
+        local r,g,b = 255,255,255
+        if myGapToLeader=='LEADER' then r,g,b=255,215,0
+        elseif myGapToLeader:sub(1,1)=='+' then r,g,b=255,100,100 end
+        SetTextFont(4); SetTextScale(0.0,0.32); SetTextColour(r,g,b,230)
         SetTextOutline(); SetTextEntry('STRING')
         AddTextComponentString(myGapToLeader)
-        DrawText(0.82, 0.927)
+        DrawText(0.82, 0.920)
     end
 
     -- Engine warning
     if engineStatus ~= 'OK' then
-        local colours = { WARNING={255,200,0,220}, DAMAGED={255,100,0,220}, CRITICAL={255,30,30,255} }
+        local colours={WARNING={255,200,0,220},DAMAGED={255,100,0,220},CRITICAL={255,30,30,255}}
         local c = colours[engineStatus] or {255,255,255,200}
-        SetTextFont(4); SetTextScale(0.0,0.28); SetTextColour(c[1],c[2],c[3],c[4])
+        SetTextFont(4); SetTextScale(0.0,0.26); SetTextColour(c[1],c[2],c[3],c[4])
         SetTextOutline(); SetTextEntry('STRING')
-        AddTextComponentString('ENGINE ' .. engineStatus)
-        DrawText(0.82, 0.955)
+        AddTextComponentString('ENGINE '..engineStatus)
+        DrawText(0.82, 0.950)
     end
 end
 
 -- ============================================================
--- 11. LEADERBOARD HUD
+-- LEADERBOARD HUD
 -- ============================================================
-RegisterNetEvent('frcp_f1:client:updateLeaderboard', function(data, gap)
-    leaderboardData = data
-    myGapToLeader   = gap
+RegisterNetEvent('fcrp_f1:cl:updateLeaderboard', function(data, gap)
+    leaderboardData=data; myGapToLeader=gap
 end)
 
 local function DrawLeaderboard()
     if not leaderboardData or #leaderboardData == 0 then return end
-    local startX = 0.78
-    local startY = 0.04
-    local lineH  = 0.028
-
-    SetTextFont(4); SetTextScale(0.0,0.28); SetTextColour(255,200,0,255)
+    local sx, sy, lh = 0.78, 0.04, 0.028
+    SetTextFont(4); SetTextScale(0.0,0.27); SetTextColour(255,200,0,255)
     SetTextOutline(); SetTextEntry('STRING')
     AddTextComponentString('FLAME CITY GP')
-    DrawText(startX, startY)
-
-    for i, entry in ipairs(leaderboardData) do
-        local y     = startY + (i * lineH) + 0.01
+    DrawText(sx, sy)
+    for i, e in ipairs(leaderboardData) do
+        local y     = sy + (i*lh) + 0.01
         local label
-        if entry.finished and entry.pos then
-            label = string.format('P%d  %s  ✓%s', entry.pos, entry.name, entry.time or '')
-        elseif entry.dq then
-            label = string.format('DQ  %s', entry.name)
+        if e.finished and e.pos then
+            label = string.format('P%d  %s  ✓%s', e.pos, e.name, e.time or '')
+        elseif e.dq then
+            label = string.format('DQ  %s', e.name)
         else
-            label = string.format('P%d  %s  L%d·CP%d', i, entry.name, entry.lap or 1, entry.cp or 1)
+            label = string.format('P%d  %s  L%d·%d', i, e.name, e.lap or 1, e.cp or 1)
         end
-        local r, g, b = 220, 220, 220
-        if entry.dq then r,g,b=255,60,60
-        elseif i==1 and entry.finished then r,g,b=255,215,0
-        elseif i==2 and entry.finished then r,g,b=192,192,192
-        elseif i==3 and entry.finished then r,g,b=205,127,50 end
-        SetTextFont(0); SetTextScale(0.0,0.25); SetTextColour(r,g,b,220)
+        local r,g,b = 220,220,220
+        if e.dq then r,g,b=255,60,60
+        elseif i==1 and e.finished then r,g,b=255,215,0
+        elseif i==2 and e.finished then r,g,b=192,192,192
+        elseif i==3 and e.finished then r,g,b=205,127,50 end
+        SetTextFont(0); SetTextScale(0.0,0.24); SetTextColour(r,g,b,220)
         SetTextOutline(); SetTextEntry('STRING')
         AddTextComponentString(label)
-        DrawText(startX, y)
+        DrawText(sx, y)
     end
 end
 
-CreateThread(function()
-    while true do DrawLeaderboard(); Wait(0) end
-end)
+CreateThread(function() while true do DrawLeaderboard(); Wait(0) end end)
 
 -- ============================================================
--- 12. GPS WAYPOINT
+-- GPS
 -- ============================================================
 local function UpdateRaceWaypoint(coords)
     if currentBlip and DoesBlipExist(currentBlip) then RemoveBlip(currentBlip) end
@@ -633,103 +630,81 @@ end
 
 local function ClearWaypoint()
     if currentBlip and DoesBlipExist(currentBlip) then RemoveBlip(currentBlip) end
-    currentBlip = nil; SetWaypointOff()
+    currentBlip=nil; SetWaypointOff()
 end
 
 -- ============================================================
--- 13. F1 STARTING LIGHTS
+-- F1 STARTING LIGHTS
 -- ============================================================
 local countdownDone = false
 local function F1Countdown()
     countdownDone = false
     CreateThread(function()
         local lights = {
-            {m='● ○ ○ ○ ○', c='#7a0000'},{m='● ● ○ ○ ○', c='#a00000'},
-            {m='● ● ● ○ ○', c='#c80000'},{m='● ● ● ● ○', c='#e00000'},
-            {m='● ● ● ● ●', c='#ff0000'},
+            {m='● ○ ○ ○ ○',c='#7a0000'},{m='● ● ○ ○ ○',c='#a00000'},
+            {m='● ● ● ○ ○',c='#c80000'},{m='● ● ● ● ○',c='#e00000'},
+            {m='● ● ● ● ●',c='#ff0000'},
         }
         for _, light in ipairs(lights) do
-            lib.showTextUI(light.m, {
-                position='top-center',
-                style={backgroundColor=light.c, color='white',
-                       fontSize='48px', fontWeight='bold', padding='10px 28px', letterSpacing='6px'}
-            })
+            lib.showTextUI(light.m, {position='top-center',
+                style={backgroundColor=light.c, color='white', fontSize='48px',
+                       fontWeight='bold', padding='10px 28px', letterSpacing='6px'}})
             PlaySoundFrontend(-1, 'CHECKPOINT_NORMAL', 'HUD_MINI_GAME_SOUNDSET', 1)
             Wait(900)
         end
-        lib.hideTextUI()
-        Wait(math.random(400, 900))
-        lib.showTextUI('GO GO GO!', {
-            position='top-center',
+        lib.hideTextUI(); Wait(math.random(400, 900))
+        lib.showTextUI('GO GO GO!', {position='top-center',
             style={backgroundColor='#00cc44', color='white', fontSize='54px',
-                   fontWeight='bold', padding='10px 28px'}
-        })
+                   fontWeight='bold', padding='10px 28px'}})
         PlaySoundFrontend(-1, 'CHECKPOINT_PERFECT', 'HUD_MINI_GAME_SOUNDSET', 1)
-        Wait(1200)
-        lib.hideTextUI()
+        Wait(1200); lib.hideTextUI()
         countdownDone = true
     end)
     while not countdownDone do Wait(100) end
 end
 
 -- ============================================================
--- 14. FORMATION LAP
+-- FORMATION LAP
 -- ============================================================
-RegisterNetEvent('frcp_f1:client:spawnSafetyCar', function()
-    local cfg      = Config.FormationLap
+RegisterNetEvent('fcrp_f1:cl:spawnSafetyCar', function()
+    local cfg = Config.FormationLap
     local maxSpeed = cfg.maxSpeed / 3.6
     local startSpot = cfg.safetyCarSpot
-    local model    = cfg.safetyCarModel
-
-    RequestModel(model)
-    while not HasModelLoaded(model) do Wait(0) end
-
-    safetyCar = CreateVehicle(model, startSpot.x, startSpot.y, startSpot.z, startSpot.w, true, false)
+    RequestModel(cfg.safetyCarModel)
+    while not HasModelLoaded(cfg.safetyCarModel) do Wait(0) end
+    safetyCar = CreateVehicle(cfg.safetyCarModel, startSpot.x, startSpot.y, startSpot.z, startSpot.w, true, false)
     SetEntityAsMissionEntity(safetyCar, true, true)
     SetVehicleColours(safetyCar, 12, 12)
     SetVehicleNumberPlateText(safetyCar, 'SAFETY')
     SetVehicleEngineOn(safetyCar, true, true, false)
     SetVehicleMaxSpeed(safetyCar, maxSpeed)
-
     safetyCarBlip = AddBlipForEntity(safetyCar)
-    SetBlipSprite(safetyCarBlip, 225); SetBlipColour(safetyCarBlip, 17)
-    SetBlipScale(safetyCarBlip, 1.1)
-    BeginTextCommandSetBlipName('STRING')
-    AddTextComponentString('Safety Car')
-    EndTextCommandSetBlipName(safetyCarBlip)
-
-    local driverModel = `s_m_m_security_01`
-    RequestModel(driverModel)
-    while not HasModelLoaded(driverModel) do Wait(0) end
-    local driver = CreatePedInsideVehicle(safetyCar, 26, driverModel, -1, true, false)
+    SetBlipSprite(safetyCarBlip, 225); SetBlipColour(safetyCarBlip, 17); SetBlipScale(safetyCarBlip, 1.1)
+    BeginTextCommandSetBlipName('STRING'); AddTextComponentString('Safety Car'); EndTextCommandSetBlipName(safetyCarBlip)
+    local dm = `s_m_m_security_01`; RequestModel(dm); while not HasModelLoaded(dm) do Wait(0) end
+    local driver = CreatePedInsideVehicle(safetyCar, 26, dm, -1, true, false)
     SetEntityAsMissionEntity(driver, true, true)
-    SetBlockingOfNonTemporaryEvents(driver, true)
-    SetPedKeepTask(driver, true)
-
+    SetBlockingOfNonTemporaryEvents(driver, true); SetPedKeepTask(driver, true)
     safetyCarActive = true
-
     local route = {}
-    for _, cp in ipairs(Config.Checkpoints) do
-        table.insert(route, vector3(cp.x, cp.y, cp.z))
-    end
-    table.insert(route, vector3(startSpot.x, startSpot.y, startSpot.z))
-
+    for _, cp in ipairs(Config.Checkpoints) do route[#route+1] = vector3(cp.x,cp.y,cp.z) end
+    route[#route+1] = vector3(startSpot.x, startSpot.y, startSpot.z)
     CreateThread(function()
         for _, dest in ipairs(route) do
             if not safetyCarActive then break end
             TaskVehicleDriveToCoordLongrange(driver, safetyCar, dest.x, dest.y, dest.z, maxSpeed, 786603, 5.0)
             while safetyCarActive do
                 if not DoesEntityExist(safetyCar) then safetyCarActive=false; break end
-                if #(GetEntityCoords(safetyCar) - dest) < 18.0 then break end
+                if #(GetEntityCoords(safetyCar)-dest) < 18.0 then break end
                 Wait(300)
             end
         end
-        if safetyCarActive then TriggerServerEvent('frcp_f1:server:formationLapDone') end
+        if safetyCarActive then TriggerServerEvent('fcrp_f1:sv:formationLapDone') end
     end)
-    lib.notify({ title='🟡 Safety Car deployed', description='Follow the SC around the circuit', type='inform' })
+    lib.notify({title='🟡 Safety Car', description='Follow the SC around the circuit.', type='inform'})
 end)
 
-RegisterNetEvent('frcp_f1:client:despawnSafetyCar', function()
+RegisterNetEvent('fcrp_f1:cl:despawnSafetyCar', function()
     safetyCarActive = false
     if safetyCarBlip and DoesBlipExist(safetyCarBlip) then RemoveBlip(safetyCarBlip) end
     safetyCarBlip = nil
@@ -741,7 +716,7 @@ RegisterNetEvent('frcp_f1:client:despawnSafetyCar', function()
     safetyCar = nil
 end)
 
-RegisterNetEvent('frcp_f1:client:beginFormationLap', function()
+RegisterNetEvent('fcrp_f1:cl:beginFormationLap', function()
     formationActive = true
     if myRaceCar and DoesEntityExist(myRaceCar) then
         FreezeEntityPosition(myRaceCar, false)
@@ -752,14 +727,13 @@ RegisterNetEvent('frcp_f1:client:beginFormationLap', function()
     if myRaceCar then
         lib.showTextUI('🟡  FORMATION LAP — Follow the safety car', {
             position='top-center',
-            style={ backgroundColor='#aa7700', color='white', fontSize='18px', fontWeight='bold', padding='8px 22px' }
+            style={backgroundColor='#aa7700', color='white', fontSize='18px', fontWeight='bold', padding='8px 22px'}
         })
     end
 end)
 
-RegisterNetEvent('frcp_f1:client:returnToGrid', function(spot)
-    formationActive = false
-    lib.hideTextUI()
+RegisterNetEvent('fcrp_f1:cl:returnToGrid', function(spot)
+    formationActive = false; lib.hideTextUI()
     if not myRaceCar or not DoesEntityExist(myRaceCar) then return end
     SetVehicleMaxSpeed(myRaceCar, 0.0)
     SetEntityCoords(myRaceCar, spot.x, spot.y, spot.z, false, false, false, false)
@@ -771,27 +745,24 @@ RegisterNetEvent('frcp_f1:client:returnToGrid', function(spot)
             SetVehicleCurrentRpm(myRaceCar, 0.1); Wait(0)
         end
     end)
-    lib.notify({ title='🏁 Back on the grid', description='Lights out in a moment...', type='inform' })
+    lib.notify({title='🏁 Back on the Grid', description='Lights out in a moment…', type='inform'})
 end)
 
-RegisterNetEvent('frcp_f1:client:endFormationLap', function()
-    formationActive = false; lib.hideTextUI()
+RegisterNetEvent('fcrp_f1:cl:endFormationLap', function()
+    formationActive=false; lib.hideTextUI()
     if myRaceCar and DoesEntityExist(myRaceCar) then
-        SetVehicleMaxSpeed(myRaceCar, 0.0)
-        FreezeEntityPosition(myRaceCar, true)
+        SetVehicleMaxSpeed(myRaceCar, 0.0); FreezeEntityPosition(myRaceCar, true)
         SetVehicleEngineOn(myRaceCar, false, true, false)
     end
 end)
 
 -- ============================================================
--- 15. SPAWN & CLEANUP
+-- SPAWN / CLEANUP
 -- ============================================================
 local function AssignLivery(veh)
     local pool = {}
-    for i = 2, Config.LiveryCount do
-        if not usedLiveries[i] then table.insert(pool, i) end
-    end
-    local chosen = #pool > 0 and pool[math.random(1, #pool)] or math.random(2, Config.LiveryCount)
+    for i = 2, Config.LiveryCount do if not usedLiveries[i] then pool[#pool+1] = i end end
+    local chosen = #pool > 0 and pool[math.random(1,#pool)] or math.random(2, Config.LiveryCount)
     usedLiveries[chosen] = true
     SetVehicleLivery(veh, chosen)
 end
@@ -802,101 +773,94 @@ local function ApplyMaxMods(veh)
         local count = GetNumVehicleMods(veh, slot)
         if count > 0 then SetVehicleMod(veh, slot, count-1, false) end
     end
-    ToggleVehicleMod(veh, 18, true)
-    ToggleVehicleMod(veh, 22, true)
+    ToggleVehicleMod(veh, 18, true); ToggleVehicleMod(veh, 22, true)
 end
 
-RegisterNetEvent('frcp_f1:client:spawnYourCar', function(spot)
+RegisterNetEvent('fcrp_f1:cl:spawnYourCar', function(spot)
     local ped = cache and cache.ped or PlayerPedId()
-    if not ped or ped == 0 then
-        lib.notify({ title='Spawn Error', description='Ped not ready', type='error' }); return
-    end
-
+    if not ped or ped == 0 then lib.notify({title='Spawn Error', type='error'}); return end
     local model = Config.F1CarModel
-    RequestModel(model)
-    while not HasModelLoaded(model) do Wait(0) end
-
+    RequestModel(model); while not HasModelLoaded(model) do Wait(0) end
     myRaceCar = CreateVehicle(model, spot.x, spot.y, spot.z, spot.w, true, false)
-    ApplyF1Handling(myRaceCar)
-    ApplyMaxMods(myRaceCar)
-    AssignLivery(myRaceCar)
-
-    local plate = GetVehicleNumberPlateText(myRaceCar)
-    TriggerEvent('vehiclekeys:client:SetOwner', plate)
+    ApplyF1Handling(myRaceCar); ApplyMaxMods(myRaceCar); AssignLivery(myRaceCar)
+    TriggerEvent('vehiclekeys:client:SetOwner', GetVehicleNumberPlateText(myRaceCar))
     SetPedIntoVehicle(ped, myRaceCar, -1)
     FreezeEntityPosition(myRaceCar, true)
     SetVehicleDoorsLocked(myRaceCar, 4)
     SetVehicleEngineOn(myRaceCar, false, true, false)
-
-    -- Reset per-session state
-    drsOpen      = false
-    engineStatus = 'OK'
-    currentTire  = 'medium'
-    tireLapsOnSet = 0
-    hasPitted    = false
-    lastTireWarn = ''
-
+    -- Reset all per-session state
+    drsOpen=false; engineStatus='OK'; currentTyre='medium'
+    hasPitted=false; pitCount=0; drsCount=0; engineOk=true
+    lapIsValid=true; offCourseTimer=0
+    bestLapMs=nil; fastestLapMs=nil; lapTimesThisRace={}
+    sectorTimes={}; bestSectorMs={[1]=nil,[2]=nil,[3]=nil}
+    currentSectorIdx=1; lapStartMs=nil; sectorStartMs=nil
+    lastTireWarn=''
     CreateThread(function()
         while myRaceCar and DoesEntityExist(myRaceCar) and not isRacing do
             SetVehicleCurrentRpm(myRaceCar, 0.1); Wait(0)
         end
     end)
-
-    -- Register pit zone after car spawns
-    RegisterPitZone()
 end)
 
-RegisterNetEvent('frcp_f1:client:cleanupCars', function()
+RegisterNetEvent('fcrp_f1:cl:cleanupCars', function()
     ClearWaypoint(); StopDirectorCam(); lib.hideTextUI()
     isRacing=false; formationActive=false; currentLap=1; currentCP=1
     leaderboardData={}; myGapToLeader=nil; drsOpen=false
-    engineStatus='OK'; usedLiveries={}
-    currentTire='medium'; tireLapsOnSet=0; hasPitted=false; lastTireWarn=''
+    engineStatus='OK'; usedLiveries={}; lapIsValid=true
+    currentTyre='medium'; pitCount=0; drsCount=0; engineOk=true
     if myRaceCar and DoesEntityExist(myRaceCar) then DeleteEntity(myRaceCar) end
-    myRaceCar = nil
-
-    -- Hide results overlay
-    SendNUIMessage({ action='hideResults' })
-    SetNuiFocus(false, false)
+    myRaceCar=nil
+    SendNUIMessage({action='hideResults'}); SetNuiFocus(false, false)
 end)
 
--- ============================================================
--- 16. POST-RACE TELEPORT
--- ============================================================
-RegisterNetEvent('frcp_f1:client:teleportPostRace', function()
+RegisterNetEvent('fcrp_f1:cl:teleportPostRace', function()
     ClearWaypoint(); isRacing=false; lib.hideTextUI()
     if myRaceCar and DoesEntityExist(myRaceCar) then DeleteEntity(myRaceCar) end
-    myRaceCar = nil
+    myRaceCar=nil
     local ped = cache and cache.ped or PlayerPedId()
     if ped and ped ~= 0 then
-        SetEntityCoords(ped,
-            Config.PostRaceLocation.x, Config.PostRaceLocation.y, Config.PostRaceLocation.z,
-            false,false,false,false)
+        SetEntityCoords(ped, Config.PostRaceLocation.x, Config.PostRaceLocation.y,
+            Config.PostRaceLocation.z, false, false, false, false)
     end
-    SendNUIMessage({ action='hideResults' })
+    SendNUIMessage({action='hideResults'}); SetNuiFocus(false, false)
+end)
+
+-- ============================================================
+-- RESULTS NUI
+-- ============================================================
+RegisterNetEvent('fcrp_f1:cl:showResults', function(data)
+    SendNUIMessage({
+        action='showResults', results=data.results, subtitle=data.subtitle,
+        delay=data.delay, flHolder=data.flHolder, flTime=data.flTime,
+        xpTable=data.xpTable, mmrTable=data.mmrTable, winXp=data.winXp,
+    })
     SetNuiFocus(false, false)
 end)
 
 -- ============================================================
--- 17. RESULTS NUI OVERLAY
+-- FASTEST LAP CLIENT FLASH
 -- ============================================================
-RegisterNetEvent('frcp_f1:client:showResults', function(data)
-    SendNUIMessage({ action='showResults', results=data.results, subtitle=data.subtitle, delay=data.delay })
-    SetNuiFocus(false, false)
+RegisterNetEvent('fcrp_f1:cl:fastestLapSet', function(ms)
+    hudFastestLapFlash = GetGameTimer()
+    Notify('fastestLap', {time=FmtMs(ms), xp=tostring(Config.FastestLapXP or 15)}, 'inform')
 end)
 
 -- ============================================================
--- 18. MAIN RACE LOOP
+-- MAIN RACE LOOP
 -- ============================================================
-RegisterNetEvent('frcp_f1:client:startRace', function()
+RegisterNetEvent('fcrp_f1:cl:startRace', function()
     if not myRaceCar then return end
     if isRacing then return end
-
-    currentLap = 1; currentCP = 1; formationActive = false
-
-    if not Config.Checkpoints or #Config.Checkpoints == 0 then
-        lib.notify({title='Race Error', description='No checkpoints in Config!', type='error'}); return
+    if OpenClientFunctions and OpenClientFunctions.CanStartRace then
+        if not OpenClientFunctions.CanStartRace() then return end
     end
+    if not Config.Checkpoints or #Config.Checkpoints == 0 then
+        lib.notify({title='Race Error', description='No checkpoints!', type='error'}); return
+    end
+
+    currentLap=1; currentCP=1; formationActive=false; lapIsValid=true
+    sectorTimes={}; currentSectorIdx=1
 
     F1Countdown()
 
@@ -905,11 +869,16 @@ RegisterNetEvent('frcp_f1:client:startRace', function()
     SetVehicleDoorsLocked(myRaceCar, 1)
     isRacing = true
 
-    -- Apply starting compound
-    ApplyTireCompound(myRaceCar, currentTire)
+    ApplyTireCompound(myRaceCar, currentTyre)
+    lapStartMs     = GetCurrentMs()
+    sectorStartMs  = GetCurrentMs()
+    raceStartMs    = GetCurrentMs()
 
-    TriggerServerEvent('frcp_f1:server:raceClockStart')
+    TriggerServerEvent('fcrp_f1:sv:raceClockStart')
     UpdateRaceWaypoint(Config.Checkpoints[currentCP])
+
+    -- Now safe to register pit zone
+    RegisterPitZone()
 
     CreateThread(function()
         while isRacing do
@@ -918,16 +887,27 @@ RegisterNetEvent('frcp_f1:client:startRace', function()
 
             -- DQ: left vehicle
             if not IsPedInVehicle(ped, myRaceCar, false) then
-                isRacing = false; ClearWaypoint(); lib.hideTextUI()
+                isRacing=false; ClearWaypoint(); lib.hideTextUI()
                 if DoesEntityExist(myRaceCar) then DeleteEntity(myRaceCar) end
-                myRaceCar = nil
-                TriggerServerEvent('frcp_f1:server:dqPlayer', 'Left vehicle')
+                myRaceCar=nil
+                TriggerServerEvent('fcrp_f1:sv:dqPlayer', 'Left vehicle')
                 lib.notify({title='DISQUALIFIED', description='You left the vehicle!', type='error'})
                 break
             end
 
             local target = Config.Checkpoints[currentCP]
             if not target then isRacing=false; break end
+
+            -- Track limit invalidation
+            if #(coords - target) > Config.LapInvalidDist then
+                offCourseTimer = offCourseTimer + 1
+                if offCourseTimer >= (Config.LapInvalidTime * 10) and lapIsValid then
+                    lapIsValid = false
+                    Notify('lapInvalid', nil, 'warning')
+                end
+            else
+                offCourseTimer = 0
+            end
 
             -- Per-frame systems
             UpdateDRS(coords)
@@ -939,9 +919,9 @@ RegisterNetEvent('frcp_f1:client:startRace', function()
             -- Pit lane speed limiter
             if Config.PitStop.enabled and Config.PitStop.speedLimit > 0 then
                 local pitZ = Config.PitStop.zone
-                if #(coords - pitZ.coords) < 20.0 then
-                    local speed = GetEntitySpeed(myRaceCar) * 3.6
-                    if speed > Config.PitStop.speedLimit then
+                if #(coords - pitZ.coords) < 22.0 then
+                    local spd = GetEntitySpeed(myRaceCar) * 3.6
+                    if spd > Config.PitStop.speedLimit then
                         SetEntityMaxSpeed(myRaceCar, Config.PitStop.speedLimit / 3.6)
                     else
                         SetEntityMaxSpeed(myRaceCar, 9999.0)
@@ -954,41 +934,97 @@ RegisterNetEvent('frcp_f1:client:startRace', function()
             -- Checkpoint markers
             if #(coords - target) < 200.0 then
                 if currentCP == 1 then
-                    DrawMarker(4, target.x,target.y,target.z, 0,0,0, 0,0,0, 5,5,5, 255,255,255,200, false,false,2,nil,nil,false)
-                    DrawMarker(1, target.x,target.y,target.z+0.05, 0,0,0, 0,0,0, 7,7,0.4, 255,40,40,100, false,false,2,nil,nil,false)
+                    DrawMarker(4, target.x,target.y,target.z, 0,0,0,0,0,0,5,5,5,255,255,255,200,false,false,2,nil,nil,false)
+                    DrawMarker(1, target.x,target.y,target.z+0.05,0,0,0,0,0,0,7,7,0.4,255,40,40,100,false,false,2,nil,nil,false)
                 else
-                    DrawMarker(1, target.x,target.y,target.z+0.05, 0,0,0, 0,0,0, 5,5,1.2, 0,180,255,160, false,false,2,nil,nil,false)
+                    DrawMarker(1, target.x,target.y,target.z+0.05,0,0,0,0,0,0,5,5,1.2,0,180,255,160,false,false,2,nil,nil,false)
                 end
             end
 
             -- Checkpoint hit
             if #(coords - target) < 15.0 then
                 PlaySoundFrontend(-1, 'CHECKPOINT_BEAT', 'HUD_MINI_GAME_SOUNDSET', 1)
+
+                -- Sector timing
+                local newSector = GetCurrentSector()
+                if newSector ~= currentSectorIdx and sectorStartMs then
+                    OnSectorComplete(currentSectorIdx, GetCurrentMs() - sectorStartMs)
+                    currentSectorIdx = newSector
+                    sectorStartMs    = GetCurrentMs()
+                end
+
+                if OpenClientFunctions and OpenClientFunctions.OnCheckpointPassed then
+                    OpenClientFunctions.OnCheckpointPassed(currentCP, #Config.Checkpoints)
+                end
+
                 if currentCP < #Config.Checkpoints then
                     currentCP = currentCP + 1
                 else
+                    -- Complete the final sector
+                    if sectorStartMs then
+                        OnSectorComplete(currentSectorIdx, GetCurrentMs() - sectorStartMs)
+                    end
+
                     currentCP  = 1
-                    currentLap = currentLap + 1
+                    local lapMs = GetCurrentMs() - (lapStartMs or GetCurrentMs())
+
+                    -- Lap time
+                    if lapIsValid then
+                        if not bestLapMs or lapMs < bestLapMs then
+                            bestLapMs = lapMs
+                            if not fastestLapMs or lapMs < fastestLapMs then fastestLapMs = lapMs end
+                        end
+                        lapTimesThisRace[#lapTimesThisRace+1] = lapMs
+                        -- Sector snapshot for server
+                        local stForServer = {}
+                        for _, s in ipairs(sectorTimes) do stForServer[#stForServer+1] = {label=s.label, ms=s.ms, str=s.str} end
+                        TriggerServerEvent('fcrp_f1:sv:lapComplete', lapMs, stForServer)
+                    end
+
+                    lapStartMs     = GetCurrentMs()
+                    sectorStartMs  = GetCurrentMs()
+                    currentSectorIdx = 1
+                    sectorTimes    = {}
+                    lapIsValid     = true
+                    offCourseTimer = 0
+                    currentLap     = currentLap + 1
+
+                    if OpenClientFunctions and OpenClientFunctions.OnLapComplete then
+                        OpenClientFunctions.OnLapComplete(currentLap - 1, lapMs)
+                    end
+
                     if currentLap > Config.MaxLaps then
                         -- Mandatory pit check
                         if Config.PitStop.enabled and Config.PitStop.mandatory and not hasPitted then
-                            TriggerServerEvent('frcp_f1:server:dqPlayer', 'No mandatory pit stop')
+                            TriggerServerEvent('fcrp_f1:sv:dqPlayer', 'No pit stop')
                             Notify('pitMandatoryDQ', nil, 'error')
-                            isRacing = false; ClearWaypoint(); lib.hideTextUI(); break
+                            isRacing=false; ClearWaypoint(); lib.hideTextUI(); break
                         end
-                        isRacing = false; ClearWaypoint(); lib.hideTextUI()
-                        TriggerServerEvent('frcp_f1:server:finishRace')
+                        -- Finish — send full client data
+                        isRacing=false; ClearWaypoint(); lib.hideTextUI()
+                        TriggerServerEvent('fcrp_f1:sv:finishRace', {
+                            fastestLapMs = fastestLapMs,
+                            bestLapStr   = FmtMs(fastestLapMs),
+                            sectorTimes  = sectorTimes,
+                            tyre         = currentTyre,
+                            pitCount     = pitCount,
+                            drsCount     = drsCount,
+                            engineOk     = engineOk,
+                        })
+                        if OpenClientFunctions and OpenClientFunctions.OnRaceFinish then
+                            OpenClientFunctions.OnRaceFinish(0, GetCurrentMs() - (raceStartMs or GetCurrentMs()))
+                        end
                         break
                     else
-                        lib.notify({
-                            title=string.format('LAP %d COMPLETE', currentLap-1),
-                            description=string.format('%d lap(s) remaining', Config.MaxLaps-(currentLap-1)),
-                            type='inform'
-                        })
+                        local lapNotif = (Config.Notify.lapComplete)
+                            :gsub('{lap}', tostring(currentLap-1))
+                            :gsub('{time}', FmtMs(lapMs))
+                        lib.notify({title='Lap Complete', description=lapNotif, type='inform', duration=3000})
                     end
                 end
+
                 UpdateRaceWaypoint(Config.Checkpoints[currentCP])
-                TriggerServerEvent('frcp_f1:server:updateProgress', currentLap, currentCP)
+                TriggerServerEvent('fcrp_f1:sv:updateProgress', currentLap, currentCP)
             end
 
             Wait(0)
@@ -999,21 +1035,5 @@ RegisterNetEvent('frcp_f1:client:startRace', function()
 end)
 
 -- ============================================================
--- 19. AUTO-RACE CLOCK WATCHER
+-- LAPTOP APP REGISTRATION
 -- ============================================================
-CreateThread(function()
-    while true do
-        Wait(30000)
-        if Config.AutoRace and #Config.AutoRace > 0 then
-            local h, m = GetClockHours(), GetClockMinutes()
-            local now  = string.format('%02d:%02d', h, m)
-            for _, entry in ipairs(Config.AutoRace) do
-                if entry.time == now then
-                    TriggerServerEvent('frcp_f1:server:autoRaceTrigger')
-                end
-            end
-        end
-    end
-end)
-
-DBG('Client v2.0 loaded.')

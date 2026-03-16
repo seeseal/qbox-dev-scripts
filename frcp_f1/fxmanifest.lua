@@ -2,13 +2,14 @@ fx_version 'cerulean'
 game 'gta5'
 
 name        'fcrp_f1'
-description 'Flame City F1 System — v2.0'
+description 'Flame City F1 — v3.0 | Qbox + ox_target + oxmysql'
 author      'FCRP'
-version     '2.0.0'
+version     '3.0.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
     'shared/config.lua',
+    'shared/hooks.lua',
 }
 
 client_scripts {
@@ -20,10 +21,12 @@ server_scripts {
     'server/main.lua',
 }
 
-ui_page 'html/results.html'
+ui_page 'html/index.html'
 
 files {
-    'html/results.html',
+    'html/index.html',
+    'html/assets/*.css',
+    'html/assets/*.js',
 }
 
 dependencies {

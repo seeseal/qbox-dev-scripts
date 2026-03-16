@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;700;900&family=Rajdhani:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Exo 2',sans-serif;background:rgba(0,0,0,0);height:100vh;overflow:hidden;pointer-events:none;}
+
+/* ── RESULTS OVERLAY ─────────────────────────────────── */
+#results-overlay{
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;visibility:hidden;transition:opacity 0.4s ease;pointer-events:none;
+}
+#results-overlay.visible{opacity:1;visibility:visible;animation:fadeSlide 0.5s ease forwards;}
+@keyframes fadeSlide{from{opacity:0;transform:translateY(-16px);}to{opacity:1;transform:translateY(0);}}
+
+.panel{width:840px;display:flex;flex-direction:column;}
+
+.panel-header{
+  background:linear-gradient(90deg,#c00 0%,#900 40%,#111 100%);
+  border-left:6px solid #ff0000;padding:14px 28px;
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;
+}
+.header-title{font-family:'Rajdhani',sans-serif;font-size:28px;font-weight:700;color:#fff;letter-spacing:4px;text-transform:uppercase;}
+.header-sub{font-size:12px;color:rgba(255,255,255,0.55);letter-spacing:2px;margin-top:2px;}
+.f1-badge{font-family:'Rajdhani',sans-serif;font-size:22px;font-weight:900;color:#fff;
+  background:#e10600;padding:4px 14px;
+  clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%);letter-spacing:2px;}
+
+/* fastest lap strip */
+.fl-strip{
+  background:rgba(120,0,180,0.22);border-left:4px solid #cc00ff;
+  padding:6px 20px;display:flex;align-items:center;gap:12px;margin-bottom:3px;
+  font-family:'Rajdhani',sans-serif;font-size:14px;color:#e0aaff;letter-spacing:2px;
+}
+.fl-strip span{color:#fff;font-weight:700;}
+
+.rt{width:100%;border-collapse:collapse;background:rgba(8,8,8,0.96);}
+.rt thead tr{background:rgba(255,255,255,0.05);}
+.rt thead th{font-family:'Rajdhani',sans-serif;font-size:11px;letter-spacing:3px;
+  color:rgba(255,255,255,0.38);text-transform:uppercase;padding:8px 14px;text-align:left;
+  border-bottom:1px solid rgba(255,255,255,0.07);}
+.rt tbody tr{border-bottom:1px solid rgba(255,255,255,0.05);
+  animation:rowSlide 0.4s ease forwards;opacity:0;transform:translateX(-10px);}
+@keyframes rowSlide{to{opacity:1;transform:translateX(0);}}
+.rt tbody tr td{padding:11px 14px;font-size:15px;color:#ddd;}
+
+.col-pos{font-family:'Rajdhani',sans-serif;font-size:20px!important;font-weight:700;width:52px;text-align:center!important;}
+.pos-1{color:#FFD700!important;} .pos-2{color:#C0C0C0!important;} .pos-3{color:#CD7F32!important;} .pos-dq{color:#ff4444!important;font-size:13px!important;}
+.col-name{font-weight:600;font-size:16px!important;letter-spacing:1px;}
+.row-winner .col-name{color:#FFD700!important;}
+.col-time{font-family:'Rajdhani',sans-serif;font-size:17px!important;color:#aaffaa!important;letter-spacing:1px;}
+.col-time.dq{color:#ff6666!important;font-size:13px!important;}
+.col-gap{font-size:13px!important;color:rgba(255,255,255,0.42)!important;font-family:'Rajdhani',sans-serif;letter-spacing:1px;}
+.col-xp{font-family:'Rajdhani',sans-serif;font-size:13px!important;color:#88ddff!important;letter-spacing:1px;white-space:nowrap;}
+.col-xp.win{color:#FFD700!important;font-size:15px!important;font-weight:700;}
+.col-mmr{font-family:'Rajdhani',sans-serif;font-size:13px!important;white-space:nowrap;}
+.col-mmr.pos{color:#55ff88!important;} .col-mmr.neg{color:#ff6655!important;}
+.col-strip{width:5px;padding:0!important;}
+.row-winner{background:linear-gradient(90deg,rgba(255,215,0,0.11) 0%,rgba(0,0,0,0) 60%)!important;border-left:3px solid #FFD700;}
+.row-dq{background:rgba(255,40,40,0.05)!important;opacity:0.7;}
+
+.panel-footer{
+  width:100%;background:rgba(8,8,8,0.96);border-top:1px solid rgba(255,255,255,0.07);
+  padding:10px 20px;display:flex;align-items:center;justify-content:space-between;
+}
+.footer-note{font-size:12px;color:rgba(255,255,255,0.3);letter-spacing:1px;}
+.cbar{width:160px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;}
+.cfill{height:100%;background:#e10600;width:100%;transition:width linear;}
+
+
+</style>
+</head>
+<body>
+
+<!-- Results overlay -->
+<div id="results-overlay">
+  <div class="panel">
+    <div class="panel-header">
+      <div>
+        <div class="header-title">Race Results</div>
+        <div class="header-sub" id="results-sub">FLAME CITY GRAND PRIX</div>
+      </div>
+      <div class="f1-badge">F1</div>
+    </div>
+    <div class="fl-strip" id="fl-strip" style="display:none">
+      💜 FASTEST LAP — <span id="fl-name"></span> — <span id="fl-time"></span>
+    </div>
+    <table class="rt">
+      <thead>
+        <tr>
+          <th style="width:5px"></th>
+          <th>POS</th><th>DRIVER</th><th>TIME</th><th>GAP</th><th>XP</th><th>MMR</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+    <div class="panel-footer">
+      <div class="footer-note">Teleporting in <span id="tp-cd">20</span>s</div>
+      <div class="cbar"><div class="cfill" id="cfill"></div></div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+const STRIPS = ['#e10600','#0090ff','#00d2be','#ff8000','#ffffff','#900000','#aaaaaa','#005b8e'];
+let xpTable=[], mmrTable=[], winXp=100;
+
+window.addEventListener('message', e => {
+  const d = e.data;
+  if (!d || !d.action) return;
+  if (d.action === 'showResults') showResults(d);
+  if (d.action === 'hideResults') hideResults();
+});
+
+function showResults(data) {
+  if (data.xpTable)  xpTable  = data.xpTable;
+  if (data.mmrTable) mmrTable = data.mmrTable;
+  if (data.winXp)    winXp    = data.winXp;
+
+  document.getElementById('results-sub').textContent = data.subtitle || 'FLAME CITY GRAND PRIX';
+
+  // Fastest lap strip
+  const flStrip = document.getElementById('fl-strip');
+  if (data.flHolder) {
+    document.getElementById('fl-name').textContent = data.flHolder;
+    document.getElementById('fl-time').textContent = data.flTime || '';
+    flStrip.style.display = 'flex';
+  } else {
+    flStrip.style.display = 'none';
+  }
+
+  const tbody = document.getElementById('results-body');
+  tbody.innerHTML = '';
+  const all = [...(data.results||[]).filter(r=>!r.dq), ...(data.results||[]).filter(r=>r.dq)];
+
+  all.forEach((entry, idx) => {
+    const tr = document.createElement('tr');
+    tr.style.animationDelay = (idx * 80) + 'ms';
+    const isDQ    = !!entry.dq;
+    const isWin   = !isDQ && entry.pos === 1;
+    const posClass= isDQ ? 'pos-dq' : (entry.pos===1 ? 'pos-1' : entry.pos===2 ? 'pos-2' : entry.pos===3 ? 'pos-3' : '');
+    const rowClass= isDQ ? 'row-dq' : (isWin ? 'row-winner' : '');
+    const timeStr = isDQ ? (entry.dqReason||'DQ') : (entry.time||'—');
+    const timeClass= 'col-time' + (isDQ ? ' dq' : '');
+    const gapStr  = isDQ ? '' : (entry.gap||'');
+    const posLabel= isDQ ? 'DQ' : (entry.pos ? 'P'+entry.pos : '—');
+    const strip   = isDQ ? '#600' : (STRIPS[(entry.pos?entry.pos-1:idx) % STRIPS.length]);
+
+    let xpStr='—', mmrStr='—', xpClass='col-xp', mmrClass='col-mmr';
+    if (!isDQ && entry.pos) {
+      const xp = isWin ? winXp : (xpTable[entry.pos-1] || xpTable[xpTable.length-1] || 0);
+      const mmr= mmrTable[entry.pos-1] || mmrTable[mmrTable.length-1] || -20;
+      xpStr   = '+' + xp + ' XP';
+      mmrStr  = (mmr>=0?'+':'') + mmr;
+      xpClass = 'col-xp' + (isWin ? ' win' : '');
+      mmrClass= 'col-mmr ' + (mmr>=0 ? 'pos' : 'neg');
+    }
+
+    tr.className = rowClass;
+    tr.innerHTML = `
+      <td class="col-strip" style="background:${strip}"></td>
+      <td class="col-pos ${posClass}">${posLabel}</td>
+      <td class="col-name">${entry.name||'—'}</td>
+      <td class="${timeClass}">${timeStr}</td>
+      <td class="col-gap">${gapStr}</td>
+      <td class="${xpClass}">${xpStr}</td>
+      <td class="${mmrClass}">${mmrStr}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('results-overlay').classList.add('visible');
+
+  // Countdown bar
+  const totalMs = (data.delay||20) * 1000;
+  const fill    = document.getElementById('cfill');
+  const cd      = document.getElementById('tp-cd');
+  const start   = Date.now();
+  fill.style.transitionDuration = totalMs + 'ms';
+  requestAnimationFrame(() => { fill.style.width = '0%'; });
+  const tick = setInterval(() => {
+    const left = Math.max(0, Math.ceil((totalMs-(Date.now()-start))/1000));
+    cd.textContent = left;
+    if (Date.now()-start >= totalMs) clearInterval(tick);
+  }, 250);
+}
+
+function hideResults() {
+  document.getElementById('results-overlay').classList.remove('visible');
+  setTimeout(() => { document.getElementById('results-body').innerHTML=''; }, 500);
+}
+
+</script>
+</body>
+</html>
