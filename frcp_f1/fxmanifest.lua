@@ -9,11 +9,13 @@ version     '3.0.0'
 shared_scripts {
     '@ox_lib/init.lua',
     'shared/config.lua',
+    'shared/debug.lua',    -- debug utilities (DBG / DBGW / DBGE / /f1debug / /f1nuitest)
     'shared/hooks.lua',
 }
 
 client_scripts {
     'client/main.lua',
+    'client/nui_callbacks.lua',  -- NUI callback handlers for the HTML dashboard
 }
 
 server_scripts {
@@ -25,8 +27,7 @@ ui_page 'html/index.html'
 
 files {
     'html/index.html',
-    'html/assets/*.css',
-    'html/assets/*.js',
+    'html/assets/style.css',
 }
 
 dependencies {

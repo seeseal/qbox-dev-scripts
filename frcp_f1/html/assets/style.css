@@ -1,0 +1,282 @@
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;700;900&family=Rajdhani:wght@400;600;700&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Exo 2', sans-serif;
+  background: rgba(0, 0, 0, 0);
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────
+   RESULTS PANEL — compact, bottom-right corner
+───────────────────────────────────────────── */
+#results-overlay {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 500px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  transform: translateY(12px);
+  pointer-events: none;
+}
+
+#results-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+}
+
+/* Header */
+.panel-header {
+  background: linear-gradient(90deg, #c00 0%, #850000 50%, #1a1a1a 100%);
+  border-left: 5px solid #e10600;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-title {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+
+.header-sub {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 2px;
+  margin-top: 1px;
+}
+
+.f1-badge {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  color: #fff;
+  background: #e10600;
+  padding: 3px 10px;
+  clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  letter-spacing: 2px;
+}
+
+/* Fastest lap strip */
+.fl-strip {
+  background: rgba(100, 0, 160, 0.28);
+  border-left: 3px solid #9900ee;
+  padding: 5px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 11px;
+  color: #d8aaff;
+  letter-spacing: 2px;
+}
+
+.fl-strip span { color: #fff; font-weight: 700; }
+
+/* Results table */
+.rt {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(6, 6, 6, 0.97);
+}
+
+.rt thead tr { background: rgba(255, 255, 255, 0.04); }
+
+.rt thead th {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: rgba(255, 255, 255, 0.32);
+  text-transform: uppercase;
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.06);
+}
+
+.rt tbody tr {
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.05);
+  animation: rowSlide 0.35s ease forwards;
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+@keyframes rowSlide { to { opacity: 1; transform: translateX(0); } }
+
+.rt tbody tr td { padding: 8px 10px; font-size: 13px; color: #ddd; }
+
+/* Columns */
+.col-strip  { width: 4px; padding: 0 !important; }
+.col-pos    { font-family: 'Rajdhani', sans-serif; font-size: 16px !important; font-weight: 700; width: 40px; text-align: center !important; }
+.col-name   { font-weight: 600; font-size: 13px !important; letter-spacing: 0.5px; }
+.col-time   { font-family: 'Rajdhani', sans-serif; font-size: 13px !important; color: #aaffaa !important; letter-spacing: 0.5px; }
+.col-time.dq { color: #ff6666 !important; font-size: 11px !important; }
+.col-gap    { font-size: 11px !important; color: rgba(255, 255, 255, 0.38) !important; font-family: 'Rajdhani', sans-serif; }
+.col-xp     { font-family: 'Rajdhani', sans-serif; font-size: 11px !important; color: #88ddff !important; white-space: nowrap; }
+.col-xp.win { color: #FFD700 !important; font-size: 13px !important; font-weight: 700; }
+.col-mmr    { font-family: 'Rajdhani', sans-serif; font-size: 11px !important; white-space: nowrap; }
+.col-mmr.pos { color: #55ff88 !important; }
+.col-mmr.neg { color: #ff5544 !important; }
+
+/* Row highlights */
+.pos-1 { color: #FFD700 !important; }
+.pos-2 { color: #C0C0C0 !important; }
+.pos-3 { color: #CD7F32 !important; }
+.pos-dq { color: #ff4444 !important; font-size: 11px !important; }
+
+.row-winner {
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.09) 0%, rgba(0, 0, 0, 0) 70%) !important;
+  border-left: 2px solid #FFD700;
+}
+.row-winner .col-name { color: #FFD700 !important; }
+.row-dq { background: rgba(255, 30, 30, 0.05) !important; opacity: 0.7; }
+
+/* Footer */
+.panel-footer {
+  background: rgba(6, 6, 6, 0.97);
+  border-top: 0.5px solid rgba(255, 255, 255, 0.06);
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footer-note {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 1px;
+}
+
+.cbar {
+  width: 120px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.cfill {
+  height: 100%;
+  background: #e10600;
+  width: 100%;
+  transition: width linear;
+}
+
+/* ─────────────────────────────────────────────
+   SPECTATOR HUD — top-center strip
+───────────────────────────────────────────── */
+#spec-hud {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 14px;
+  background: rgba(6, 6, 6, 0.82);
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 8px 20px;
+  pointer-events: none;
+}
+
+#spec-hud.visible { display: flex; }
+
+.spec-badge {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: #e10600;
+  text-transform: uppercase;
+}
+
+.spec-name {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 1px;
+  min-width: 120px;
+  text-align: center;
+}
+
+.spec-info {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.spec-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 1px;
+  border-left: 0.5px solid rgba(255,255,255,0.1);
+  padding-left: 14px;
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────
+   DIRECTOR CAM MODE INDICATOR — top-right
+───────────────────────────────────────────── */
+#cam-mode {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  background: rgba(6, 6, 6, 0.78);
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 6px 14px;
+  pointer-events: none;
+}
+
+#cam-mode.visible { display: flex; }
+
+.cam-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e10600;
+  animation: camBlink 1s infinite;
+}
+
+@keyframes camBlink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+.cam-label {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.cam-hint {
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  letter-spacing: 1px;
+}

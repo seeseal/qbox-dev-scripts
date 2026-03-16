@@ -488,43 +488,64 @@ end
 -- ============================================================
 RegisterNetEvent('fcrp_f1:sv:requestMenuOpen', function()
     local src = source
+    DBG('requestMenuOpen from src=' .. tostring(src))
     if IsOrganiser(src) then
         local list = {}
         for _, pid in ipairs(GetActivePlayers()) do
             local n = GetPlayerName(pid)
             if n then list[#list+1] = {id=pid, name=n} end
         end
-        TriggerClientEvent('fcrp_f1:cl:openOrganizerMenu', src, list)
+        DBG('Opening organizer NUI for src=' .. tostring(src) .. ' players=' .. #list)
+        -- Build current slot labels map to restore grid state in UI
+        local slotMap = {}
+        for slot, sid in pairs(pendingGrid) do
+            slotMap[slot] = GetPlayerName(sid) or tostring(sid)
+        end
+        TriggerClientEvent('fcrp_f1:cl:openOrganizerMenu_NUI', src, list, slotMap)
     else
-        TriggerClientEvent('ox_lib:notify', src, {
-            title='Race Manager', description='No active race right now.', type='inform'
-        })
+        DBG('src=' .. tostring(src) .. ' is not organiser — opening stats NUI instead')
+        local cid = GetCid(src)
+        GetOrCreate(cid, function(stats)
+            MySQL.Async.fetchAll([[
+                SELECT position, race_time, best_lap, tyre_used,
+                       pit_count, xp_earned, mmr_delta, dq, dq_reason, race_date
+                FROM f1_race_history WHERE citizenid=@c
+                ORDER BY race_date DESC LIMIT 10
+            ]], {['@c']=cid}, function(history)
+                TriggerClientEvent('fcrp_f1:cl:openStatsMenu_NUI', src, stats, history or {})
+            end)
+        end)
     end
 end)
 
 RegisterNetEvent('fcrp_f1:sv:requestMyStats', function()
     local src = source
     local cid = GetCid(src)
+    DBG('requestMyStats cid=' .. tostring(cid) .. ' src=' .. tostring(src))
     GetOrCreate(cid, function(stats)
-        -- Fetch last 5 race history entries
         MySQL.Async.fetchAll([[
             SELECT position, race_time, best_lap, tyre_used,
-                   pit_count, xp_earned, mmr_delta, dq, race_date
+                   pit_count, xp_earned, mmr_delta, dq, dq_reason, race_date
             FROM f1_race_history WHERE citizenid=@c
-            ORDER BY race_date DESC LIMIT 5
+            ORDER BY race_date DESC LIMIT 10
         ]], {['@c']=cid}, function(history)
-            TriggerClientEvent('fcrp_f1:cl:openStatsMenu', src, stats, history or {})
+            DBG('Sending stats NUI: mmr=' .. tostring(stats.mmr) ..
+                ' races=' .. tostring(stats.races) ..
+                ' history_rows=' .. tostring(#(history or {})))
+            TriggerClientEvent('fcrp_f1:cl:openStatsMenu_NUI', src, stats, history or {})
         end)
     end)
 end)
 
 RegisterNetEvent('fcrp_f1:sv:requestLeaderboard', function()
     local src = source
+    DBG('requestLeaderboard from src=' .. tostring(src))
     MySQL.Async.fetchAll([[
         SELECT citizenid, mmr, xp, wins, races, podiums, fastest_laps, best_lap_ms
         FROM f1_players ORDER BY mmr DESC LIMIT 20
     ]], {}, function(rows)
-        TriggerClientEvent('fcrp_f1:cl:showLeaderboard', src, rows or {})
+        DBG('Leaderboard rows returned: ' .. tostring(#(rows or {})))
+        TriggerClientEvent('fcrp_f1:cl:showLeaderboard_NUI', src, rows or {})
     end)
 end)
 
@@ -533,6 +554,7 @@ end)
 -- ============================================================
 lib.addCommand('f1menu', {help='Open Race Control panel'}, function(source)
     local src = source
+    DBG('/f1menu called by src=' .. tostring(src))
     if not IsOrganiser(src) then
         TriggerClientEvent('ox_lib:notify', src, {title='Access Denied', type='error'}); return
     end
@@ -541,7 +563,12 @@ lib.addCommand('f1menu', {help='Open Race Control panel'}, function(source)
         local n = GetPlayerName(pid)
         if n then list[#list+1] = {id=pid, name=n} end
     end
-    TriggerClientEvent('fcrp_f1:cl:openOrganizerMenu', src, list)
+    local slotMap = {}
+    for slot, sid in pairs(pendingGrid) do
+        slotMap[slot] = GetPlayerName(sid) or tostring(sid)
+    end
+    DBG('/f1menu opening NUI organizer for src=' .. tostring(src))
+    TriggerClientEvent('fcrp_f1:cl:openOrganizerMenu_NUI', src, list, slotMap)
 end)
 
 -- ============================================================
@@ -1083,6 +1110,132 @@ AddEventHandler('playerDropped', function()
 
     -- This now correctly fires even when the last human is gone
     CheckSessionEnd()
+end)
+
+-- ============================================================
+-- SPECTATOR  (/f1spectate — any player, any time a race is active)
+-- ============================================================
+local spectators = {}   -- [src] = true
+
+lib.addCommand('f1spectate', {help='Spectate the live F1 race'}, function(source)
+    local src = source
+
+    -- Block if already a racer
+    if racers[tostring(src)] then
+        TriggerClientEvent('ox_lib:notify', src, {
+            title='Spectator Mode', description='You are registered as a driver.', type='error'
+        }); return
+    end
+
+    if not raceInProgress then
+        TriggerClientEvent('ox_lib:notify', src, {
+            title='No Active Race', description='There is no race in progress.', type='error'
+        }); return
+    end
+
+    -- Build target list from active racers
+    local targets = {}
+    for id, d in pairs(racers) do
+        if not d.dq and not d.finished then
+            local numId = tonumber(id)
+            if numId then
+                local ped = GetPlayerPed(numId)
+                local veh = ped and GetVehiclePedIsIn(ped, false)
+                if veh and veh ~= 0 then
+                    targets[#targets+1] = {
+                        name  = d.name,
+                        netId = NetworkGetNetworkIdFromEntity(veh),
+                        lap   = d.lap or 1,
+                        pos   = d.finishPos or 1,
+                    }
+                end
+            end
+        end
+    end
+
+    if #targets == 0 then
+        TriggerClientEvent('ox_lib:notify', src, {
+            title='No Drivers', description='All drivers have finished or no one is on track.', type='error'
+        }); return
+    end
+
+    spectators[src] = true
+    TriggerClientEvent('fcrp_f1:cl:startSpectating', src, targets)
+    print(string.format('^3[F1]^7 %s is now spectating.', GetPlayerName(src)))
+end)
+
+-- Periodic spectator target update (every 3s while race is live)
+CreateThread(function()
+    while true do
+        Wait(3000)
+        if raceInProgress and next(spectators) ~= nil then
+            local targets = {}
+            for id, d in pairs(racers) do
+                if not d.dq then
+                    local numId = tonumber(id)
+                    if numId then
+                        local ped = GetPlayerPed(numId)
+                        local veh = ped and GetVehiclePedIsIn(ped, false)
+                        if veh and veh ~= 0 then
+                            targets[#targets+1] = {
+                                name  = d.name,
+                                netId = NetworkGetNetworkIdFromEntity(veh),
+                                lap   = d.lap or 1,
+                                pos   = d.finishPos or (#targets + 1),
+                            }
+                        end
+                    end
+                end
+            end
+            if #targets > 0 then
+                for specSrc in pairs(spectators) do
+                    TriggerClientEvent('fcrp_f1:cl:specTargetsUpdate', specSrc, targets)
+                end
+            end
+        end
+    end
+end)
+
+-- Clear spectators when race ends
+local _origShowResults = ShowResultsAndTeleport
+ShowResultsAndTeleport = function()
+    for specSrc in pairs(spectators) do
+        TriggerClientEvent('fcrp_f1:cl:raceEnded', specSrc)
+    end
+    spectators = {}
+    _origShowResults()
+end
+
+-- Clean up if a spectator disconnects
+AddEventHandler('playerDropped', function()
+    spectators[source] = nil
+end)
+
+-- ============================================================
+-- PLAYER NEEDS MAINTENANCE  (stress=0, food=100, water=100)
+-- ============================================================
+RegisterNetEvent('fcrp_f1:sv:maintainNeeds', function()
+    local src = source
+    if not Config.RaceNeeds or not Config.RaceNeeds.enabled then return end
+    if not racers[tostring(src)] then return end  -- only registered drivers
+
+    local p = GetQBPlayer(src)
+    if not p then return end
+
+    -- Stress
+    p.Functions.SetMetaData('stress', Config.RaceNeeds.stress)
+
+    -- Hunger / Thirst — qbx_core stores these as metadata
+    p.Functions.SetMetaData('hunger', Config.RaceNeeds.hunger)
+    p.Functions.SetMetaData('thirst', Config.RaceNeeds.thirst)
+
+    -- Trigger the qbx status sync so client HUD updates
+    TriggerClientEvent('hud:client:UpdateNeeds', src,
+        Config.RaceNeeds.hunger,
+        Config.RaceNeeds.thirst
+    )
+
+    DBG('Needs maintained for player '..src)
 end)
 
 print('^2[FCRP_F1]^7 Server v3.0 loaded.')

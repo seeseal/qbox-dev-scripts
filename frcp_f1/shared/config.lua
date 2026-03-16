@@ -14,7 +14,22 @@ Config = {}
 -- ─────────────────────────────────────────────────────────────────
 -- 🌍  GENERAL
 -- ─────────────────────────────────────────────────────────────────
-Config.Debug     = false         -- print verbose logs to console
+-- +-----------------------------------------------------------------+
+-- |  DEBUG FLAGS                                                    |
+-- |                                                                 |
+-- |  Config.Debug        -- master switch. Enables DBG() logs,     |
+-- |                         /f1debug and /f1nuitest commands, and   |
+-- |                         auto diagnostics on resource start.     |
+-- |                                                                 |
+-- |  Config.DebugVerbose -- table/payload dumps (chatty)            |
+-- |  Config.DebugNUI     -- log every NUI message action name       |
+-- |  Config.DebugEvents  -- log every net event trigger (noisy)     |
+-- +-----------------------------------------------------------------+
+Config.Debug        = false   -- master debug switch
+Config.DebugVerbose = false   -- full NUI payload + table dumps
+Config.DebugNUI     = false   -- log every SendNUIMessage action
+Config.DebugEvents  = false   -- log every net event trigger
+
 Config.MoneyType = 'bank'        -- 'cash' | 'bank'
 
 -- ─────────────────────────────────────────────────────────────────
@@ -280,6 +295,26 @@ Config.Checkpoints = {
     vector3(1036.68,  -88.14, 80.11),  -- CP 8
     vector3( 999.51,   -0.70, 80.10),  -- CP 9
     vector3(1101.77,  170.51, 80.05),  -- CP 10 ── Sector 3 end / S/F approach
+}
+
+-- ─────────────────────────────────────────────────────────────────
+-- 👁️  SPECTATOR MODE
+-- ─────────────────────────────────────────────────────────────────
+Config.Spectator = {
+    vantagePoint    = vector4(1150.0, 220.0, 82.0, 240.0),
+    showLeaderboard = true,
+}
+
+-- ─────────────────────────────────────────────────────────────────
+-- 🍔  PLAYER NEEDS DURING RACE
+--    Keeps stress=0, food=100, water=100 throughout the event.
+-- ─────────────────────────────────────────────────────────────────
+Config.RaceNeeds = {
+    enabled      = true,
+    intervalSecs = 30,
+    stress       = 0,
+    hunger       = 100,
+    thirst       = 100,
 }
 
 -- ─────────────────────────────────────────────────────────────────

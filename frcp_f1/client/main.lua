@@ -62,6 +62,14 @@ local slotLabels      = {}
 local currentPlayerMap= {}
 local directorCam     = nil
 local directorTarget  = nil
+local directorMode    = 1   -- 1=Follow 2=Helicopter 3=TV 4=Onboard
+local directorModes   = { 'Follow', 'Helicopter', 'TV Cam', 'Onboard' }
+
+-- ── Spectator state ──────────────────────────────────────────
+local isSpectating      = false
+local specTargets       = {}   -- { { name, netId, lap, pos } }
+local specIndex         = 1
+local specCam           = nil
 
 -- ============================================================
 -- HELPERS
@@ -225,8 +233,66 @@ RegisterNetEvent('fcrp_f1:cl:showLeaderboard', function(rows)
 end)
 
 -- ============================================================
--- RACE DIRECTOR CAMERA
+-- RACE DIRECTOR CAMERA  (4 modes, cycle with F6)
 -- ============================================================
+local CAM_MODES = {
+    {
+        label = 'Follow',
+        -- Behind and slightly above the car, smooth chase
+        update = function(cam, veh)
+            local pos     = GetEntityCoords(veh)
+            local heading = GetEntityHeading(veh)
+            local rad     = math.rad(heading)
+            local cx = pos.x + math.sin(rad) * 9.0
+            local cy = pos.y + math.cos(rad) * 9.0
+            local cz = pos.z + 3.5
+            SetCamCoord(cam, cx, cy, cz)
+            PointCamAtEntity(cam, veh, 0.0, 0.0, 0.5, true)
+            SetCamFov(cam, 52.0)
+        end,
+    },
+    {
+        label = 'Helicopter',
+        -- Directly overhead, top-down bird's eye
+        update = function(cam, veh)
+            local pos = GetEntityCoords(veh)
+            SetCamCoord(cam, pos.x, pos.y, pos.z + 28.0)
+            PointCamAtEntity(cam, veh, 0.0, 0.0, 0.0, true)
+            SetCamFov(cam, 45.0)
+        end,
+    },
+    {
+        label = 'TV Cam',
+        -- Wide side-on angle, slightly elevated
+        update = function(cam, veh)
+            local pos     = GetEntityCoords(veh)
+            local heading = GetEntityHeading(veh)
+            local rad     = math.rad(heading + 90.0)
+            local cx = pos.x + math.sin(rad) * 14.0
+            local cy = pos.y + math.cos(rad) * 14.0
+            local cz = pos.z + 5.0
+            SetCamCoord(cam, cx, cy, cz)
+            PointCamAtEntity(cam, veh, 0.0, 0.0, 0.5, true)
+            SetCamFov(cam, 60.0)
+        end,
+    },
+    {
+        label = 'Onboard',
+        -- Hood-mount first-person style
+        update = function(cam, veh)
+            local pos     = GetEntityCoords(veh)
+            local heading = GetEntityHeading(veh)
+            local fwd     = GetEntityForwardVector(veh)
+            local cx = pos.x + fwd.x * 2.2
+            local cy = pos.y + fwd.y * 2.2
+            local cz = pos.z + 0.55
+            SetCamCoord(cam, cx, cy, cz)
+            PointCamAtEntity(cam, veh, fwd.x * 30, fwd.y * 30, 0.0, false)
+            SetCamFov(cam, 68.0)
+        end,
+    },
+}
+
 function OpenDirectorCamMenu()
     local result = lib.inputDialog('Race Director Camera', {
         {type='number', label='Target Player Server ID', placeholder='e.g. 3', required=true, min=1}
@@ -246,20 +312,28 @@ RegisterNetEvent('fcrp_f1:cl:attachDirectorCam', function(netId)
         lib.notify({title='Cam Error', description='Entity missing', type='error'}); return
     end
     directorTarget = veh
-    directorCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
+    directorMode   = 1
+    directorCam    = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
     SetCamActive(directorCam, true)
     RenderScriptCams(true, true, 500, true, false)
-    lib.notify({title='📷 Director Cam', description='Press Backspace to exit', type='inform'})
+    SendNUIMessage({action='camMode', label=CAM_MODES[directorMode].label})
+    lib.notify({title='Director Cam ON', description='F6 = cycle mode  |  Backspace = exit', type='inform'})
+
     CreateThread(function()
         while directorCam and IsCamActive(directorCam) do
             if not DoesEntityExist(directorTarget) then break end
+
+            -- Exit
             if IsControlJustPressed(0, 194) or IsControlJustPressed(0, 177) then break end
-            local pos = GetEntityCoords(directorTarget)
-            local heading = GetEntityHeading(directorTarget)
-            local rad = math.rad(heading)
-            SetCamCoord(directorCam, pos.x+math.sin(rad)*8.0, pos.y+math.cos(rad)*8.0, pos.z+4.0)
-            PointCamAtEntity(directorCam, directorTarget, 0.0, 0.0, 0.5, true)
-            SetCamFov(directorCam, 55.0)
+
+            -- Cycle mode with F6 (key 311)
+            if IsControlJustPressed(0, 311) then
+                directorMode = (directorMode % #CAM_MODES) + 1
+                SendNUIMessage({action='camMode', label=CAM_MODES[directorMode].label})
+                lib.notify({title='Camera: '..CAM_MODES[directorMode].label, type='inform', duration=2000})
+            end
+
+            CAM_MODES[directorMode].update(directorCam, directorTarget)
             Wait(0)
         end
         StopDirectorCam()
@@ -270,7 +344,8 @@ function StopDirectorCam()
     if directorCam then
         RenderScriptCams(false, true, 500, true, false)
         DestroyCam(directorCam, false)
-        directorCam=nil; directorTarget=nil
+        directorCam = nil; directorTarget = nil
+        SendNUIMessage({action='camHide'})
     end
 end
 
@@ -874,6 +949,9 @@ RegisterNetEvent('fcrp_f1:cl:startRace', function()
     sectorStartMs  = GetCurrentMs()
     raceStartMs    = GetCurrentMs()
 
+    -- Lock to first-person view
+    SetFollowVehicleCamViewMode(0)
+
     TriggerServerEvent('fcrp_f1:sv:raceClockStart')
     UpdateRaceWaypoint(Config.Checkpoints[currentCP])
 
@@ -915,6 +993,11 @@ RegisterNetEvent('fcrp_f1:cl:startRace', function()
             CheckTireWear()
             DrawRaceHUD(currentLap, Config.MaxLaps, currentCP, #Config.Checkpoints)
             DrawRacingLine(coords, target)
+
+            -- Enforce first-person view
+            if GetFollowVehicleCamViewMode() ~= 0 then
+                SetFollowVehicleCamViewMode(0)
+            end
 
             -- Pit lane speed limiter
             if Config.PitStop.enabled and Config.PitStop.speedLimit > 0 then
@@ -1035,5 +1118,127 @@ RegisterNetEvent('fcrp_f1:cl:startRace', function()
 end)
 
 -- ============================================================
--- LAPTOP APP REGISTRATION
+-- SPECTATOR MODE
 -- ============================================================
+local function StopSpectate()
+    if not isSpectating then return end
+    isSpectating = false
+    specTargets  = {}
+    specIndex    = 1
+    if specCam then
+        RenderScriptCams(false, true, 500, true, false)
+        DestroyCam(specCam, false)
+        specCam = nil
+    end
+    SendNUIMessage({action='specHide'})
+    lib.notify({title='Spectator Mode', description='You stopped spectating.', type='inform'})
+end
+
+local function UpdateSpecCam()
+    if not isSpectating or #specTargets == 0 then return end
+    local t = specTargets[specIndex]
+    if not t then return end
+    if not NetworkDoesNetworkIdExist(t.netId) then return end
+    local veh = NetToVeh(t.netId)
+    if not DoesEntityExist(veh) then return end
+
+    local pos     = GetEntityCoords(veh)
+    local heading = GetEntityHeading(veh)
+    local rad     = math.rad(heading)
+    SetCamCoord(specCam, pos.x + math.sin(rad)*10.0, pos.y + math.cos(rad)*10.0, pos.z + 4.0)
+    PointCamAtEntity(specCam, veh, 0.0, 0.0, 0.5, true)
+    SetCamFov(specCam, 52.0)
+
+    SendNUIMessage({
+        action = 'specUpdate',
+        name   = t.name,
+        info   = string.format('LAP %d  ·  P%d', t.lap or 1, t.pos or 1),
+    })
+end
+
+RegisterNetEvent('fcrp_f1:cl:startSpectating', function(targets)
+    if isSpectating then StopSpectate() end
+    if not targets or #targets == 0 then
+        lib.notify({title='No Drivers', description='Race not active or no drivers on track.', type='error'}); return
+    end
+
+    isSpectating = true
+    specTargets  = targets
+    specIndex    = 1
+
+    local ped = cache and cache.ped or PlayerPedId()
+    local vp  = Config.Spectator.vantagePoint
+    SetEntityCoords(ped, vp.x, vp.y, vp.z, false, false, false, false)
+    SetEntityHeading(ped, vp.w)
+
+    specCam = CreateCam('DEFAULT_SCRIPTED_CAMERA', true)
+    SetCamActive(specCam, true)
+    RenderScriptCams(true, true, 500, true, false)
+
+    lib.notify({
+        title       = 'Spectator Mode',
+        description = 'LEFT / RIGHT = cycle drivers  |  Backspace = exit',
+        type        = 'inform',
+        duration    = 5000,
+    })
+
+    CreateThread(function()
+        while isSpectating do
+            if IsControlJustPressed(0, 174) then  -- LEFT arrow
+                specIndex = ((specIndex - 2) % #specTargets) + 1
+                lib.notify({title='Watching: '..specTargets[specIndex].name, type='inform', duration=2000})
+            elseif IsControlJustPressed(0, 175) then  -- RIGHT arrow
+                specIndex = (specIndex % #specTargets) + 1
+                lib.notify({title='Watching: '..specTargets[specIndex].name, type='inform', duration=2000})
+            end
+
+            if IsControlJustPressed(0, 177) then  -- Backspace
+                StopSpectate(); break
+            end
+
+            UpdateSpecCam()
+            Wait(0)
+        end
+    end)
+end)
+
+-- Server pushes updated lap/pos data periodically
+RegisterNetEvent('fcrp_f1:cl:specTargetsUpdate', function(targets)
+    if not isSpectating or not targets then return end
+    for i, nt in ipairs(targets) do
+        if specTargets[i] then
+            specTargets[i].lap = nt.lap
+            specTargets[i].pos = nt.pos
+        end
+    end
+end)
+
+-- Auto-exit spectator when race ends
+RegisterNetEvent('fcrp_f1:cl:raceEnded', function()
+    if isSpectating then
+        SetTimeout(3000, StopSpectate)
+    end
+end)
+
+-- ============================================================
+-- PLAYER NEEDS MAINTENANCE DURING RACE
+-- ============================================================
+CreateThread(function()
+    while true do
+        local interval = (Config.RaceNeeds and Config.RaceNeeds.intervalSecs or 30) * 1000
+        Wait(interval)
+        if isRacing and Config.RaceNeeds and Config.RaceNeeds.enabled then
+            TriggerServerEvent('fcrp_f1:sv:maintainNeeds')
+        end
+    end
+end)
+
+-- ============================================================
+-- KEYBINDS
+-- ============================================================
+RegisterKeyMapping('fcrp_f1_menu', 'Open F1 Race Manager', 'keyboard', 'F5')
+RegisterCommand('fcrp_f1_menu', function()
+    TriggerServerEvent('fcrp_f1:sv:requestMenuOpen')
+end, false)
+
+DBG('Client v3.0 loaded.')
