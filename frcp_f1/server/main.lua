@@ -427,7 +427,8 @@ local function ShowResultsAndTeleport()
         }
     end
 
-    TriggerClientEvent('fcrp_f1:cl:showResults', -1, {
+    -- Fire both: _NUI for the new dashboard, original for any external listeners
+    TriggerClientEvent('fcrp_f1:cl:showResults_NUI', -1, {
         results  = rows,
         subtitle = string.format('FLAME CITY GRAND PRIX  ·  %s', currentRaceId),
         delay    = delay,
@@ -610,7 +611,37 @@ RegisterNetEvent('fcrp_f1:sv:clearGrid', function()
     local src = source
     if not IsOrganiser(src) then return end
     pendingGrid = {}
+    DBG('clearGrid by src=' .. tostring(src))
+    -- Rebuild player list and re-open organizer NUI with empty slotMap
+    local list = {}
+    for _, pid in ipairs(GetActivePlayers()) do
+        local n = GetPlayerName(pid)
+        if n then list[#list+1] = {id=pid, name=n} end
+    end
+    TriggerClientEvent('fcrp_f1:cl:openOrganizerMenu_NUI', src, list, {})
     TriggerClientEvent('ox_lib:notify', src, {title='Grid Cleared', type='inform'})
+end)
+
+-- Single slot clear (fired by NUI ✕ button on individual slot cards)
+RegisterNetEvent('fcrp_f1:sv:clearSlot', function(slot)
+    local src = source
+    if not IsOrganiser(src) then return end
+    slot = tonumber(slot)
+    if not slot or slot < 1 or slot > #Config.GridSpots then
+        DBGW('clearSlot: invalid slot=' .. tostring(slot)); return
+    end
+    pendingGrid[slot] = nil
+    DBG('Slot ' .. slot .. ' cleared by src=' .. tostring(src))
+    -- Re-open UI with updated slotMap
+    local list, slotMap = {}, {}
+    for _, pid in ipairs(GetActivePlayers()) do
+        local n = GetPlayerName(pid)
+        if n then list[#list+1] = {id=pid, name=n} end
+    end
+    for s, sid in pairs(pendingGrid) do
+        slotMap[s] = GetPlayerName(sid) or tostring(sid)
+    end
+    TriggerClientEvent('fcrp_f1:cl:openOrganizerMenu_NUI', src, list, slotMap)
 end)
 
 -- ============================================================
@@ -987,6 +1018,33 @@ lib.addCommand('f1top', {help='F1 MMR leaderboard'}, function(source)
             end
         end
     )
+end)
+
+-- ── Net event alias so the NPC ox_target button can fire this directly
+RegisterNetEvent('fcrp_f1:sv:claimWeeklyReward', function()
+    local src = source
+    local cid = GetCid(src)
+    local now, week = os.time(), 7*24*3600
+    DBG('claimWeeklyReward from cid=' .. tostring(cid))
+    GetOrCreate(cid, function(stats)
+        if (now - stats.weekly_claimed) < week then
+            local hours = math.floor((week - (now - stats.weekly_claimed)) / 3600)
+            TriggerClientEvent('ox_lib:notify', src, {
+                title='Weekly Reward',
+                description=(Config.Notify.weeklyNotReady):gsub('{hours}', hours),
+                type='inform'}); return
+        end
+        local r = Config.WeeklyReward
+        if r.type == 'money' then
+            local p = GetQBPlayer(src)
+            if p then p.Functions.AddMoney(Config.MoneyType, r.money, 'f1-weekly') end
+        elseif r.type == 'item' then
+            exports.ox_inventory:AddItem(src, r.item.name, r.item.amount)
+        end
+        MySQL.Async.execute('UPDATE f1_players SET weekly_claimed=@t WHERE citizenid=@c',
+            {['@t']=now, ['@c']=cid})
+        TriggerClientEvent('ox_lib:notify', src, {title='Weekly Reward', description=Config.Notify.weeklyReward, type='success'})
+    end)
 end)
 
 lib.addCommand('f1reward', {help='Claim weekly F1 reward'}, function(source)
