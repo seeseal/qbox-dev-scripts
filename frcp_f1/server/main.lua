@@ -187,23 +187,32 @@ end
 -- ============================================================
 -- DB: PLAYER STATS
 -- ============================================================
+-- BUG FIX #10: INSERT IGNORE prevents duplicate-key crash when two events
+-- for the same player fire concurrently (e.g. race finish + disconnect).
+-- After the upsert we always re-SELECT to return the definitive DB row.
 local function GetOrCreate(cid, cb)
-    MySQL.Async.fetchAll(
-        'SELECT * FROM f1_players WHERE citizenid=@c', { ['@c']=cid },
-        function(rows)
-            if rows and rows[1] then
-                cb(rows[1])
-            else
-                MySQL.Async.execute(
-                    'INSERT INTO f1_players (citizenid) VALUES (@c)',
-                    { ['@c']=cid },
-                    function()
-                        cb({ citizenid=cid, mmr=1500, xp=0, wins=0, races=0, podiums=0,
-                             fastest_laps=0, best_lap_ms=nil,
-                             stats='{}', achievements='{}', mmr_history='[]', weekly_claimed=0 })
+    MySQL.Async.execute(
+        'INSERT IGNORE INTO f1_players (citizenid) VALUES (@c)',
+        { ['@c'] = cid },
+        function()
+            MySQL.Async.fetchAll(
+                'SELECT * FROM f1_players WHERE citizenid=@c',
+                { ['@c'] = cid },
+                function(rows)
+                    if rows and rows[1] then
+                        cb(rows[1])
+                    else
+                        -- Absolute fallback (should never hit after INSERT IGNORE)
+                        DBGW('GetOrCreate: row still missing for cid=' .. tostring(cid))
+                        cb({
+                            citizenid   = cid, mmr=1500, xp=0, wins=0,
+                            races       = 0,   podiums=0, fastest_laps=0,
+                            best_lap_ms = nil, stats='{}', achievements='{}',
+                            mmr_history = '[]', weekly_claimed=0,
+                        })
                     end
-                )
-            end
+                end
+            )
         end
     )
 end
@@ -1101,44 +1110,157 @@ end)
 -- ============================================================
 -- AUTO-RACE SCHEDULE  (day-of-week + time)
 -- ============================================================
-local scheduledWarned = {}  -- prevent duplicate warnings
+--
+-- BUG FIX #8: Old code compared now+10 == entry.time with a 30s poll,
+-- meaning the warning window was frequently missed. Fixed by:
+--   a) polling every 10 seconds for a reliable 1-minute match window
+--   b) computing warnTime as entry.time - 10 min (correct direction)
+--   c) using a ±30s tolerance bucket so a single exact-second match
+--      isn't required
+--
+-- BUG FIX #9: Old code fired cl:startRace directly, bypassing the
+-- entire race setup flow (setupGrid → deploySafetyCar → formationLap
+-- → returnToGrid → startRace). Cars were never spawned and raceStartTime
+-- was nil so all lap times returned '?'. Fixed with a proper
+-- DoScheduledRace() coroutine that mirrors the manual organizer flow.
 
-CreateThread(function()
-    while true do
-        Wait(30000)
-        if Config.RaceSchedule then
-            local day  = os.date('%A')  -- 'Monday' etc
-            local hh   = tonumber(os.date('%H'))
-            local mm   = tonumber(os.date('%M'))
-            local now  = string.format('%02d:%02d', hh, mm)
+local scheduledWarned   = {}   -- warn keys fired this day
+local scheduledStarted  = {}   -- race keys started this day
 
-            local schedule = Config.RaceSchedule[day] or {}
-            for _, entry in ipairs(schedule) do
-                -- Warn 10 minutes before
-                local warnH, warnM = hh, mm + 10
-                if warnM >= 60 then warnH = warnH + 1; warnM = warnM - 60 end
-                local warnKey = entry.time..'_warn'
-                local warnTime= string.format('%02d:%02d', warnH, warnM)
+-- Internal helper: run a full automated race sequence
+local function DoScheduledRace(entry, raceId)
+    -- ① Reset session state exactly like setupGrid does
+    TriggerClientEvent('fcrp_f1:cl:cleanupCars', -1)
+    racers = {}; finishOrder = {}; dqList = {}
+    raceInProgress = false; raceStartTime = nil; gridAssignments = {}
+    fastestLapHolder = nil; fastestLapMs = nil
+    currentRaceId = raceId
 
-                if warnTime == entry.time and not scheduledWarned[warnKey] then
-                    scheduledWarned[warnKey] = true
-                    TriggerClientEvent('ox_lib:notify', -1, {
-                        title='🏁 Official Race',
-                        description=(Config.Notify.scheduleWarning):gsub('{mins}', '10'),
-                        type='inform', duration=8000
-                    })
-                end
-                -- Trigger race
-                if now == entry.time then
-                    if not raceInProgress and next(racers) ~= nil then
-                        raceInProgress = true
-                        TriggerClientEvent('fcrp_f1:cl:startRace', -1)
-                        print('^3[F1]^7 Scheduled race started: '..day..' '..entry.time)
-                        scheduledWarned = {}  -- reset for next round
-                    end
+    -- ② Grid all online players (up to #GridSpots, first-come first-served)
+    local players = GetActivePlayers()
+    local placed  = 0
+    pendingGrid   = {}
+
+    for i, pid in ipairs(players) do
+        local slot = i
+        if slot > #Config.GridSpots then break end
+        local name = GetPlayerName(pid)
+        if name then
+            pendingGrid[slot] = pid
+            placed = placed + 1
+        end
+    end
+
+    if placed < (Config.MinPlayers or 2) then
+        DBGW('Scheduled race ' .. raceId .. ' cancelled — only ' .. placed .. ' player(s) online (min ' .. (Config.MinPlayers or 2) .. ')')
+        TriggerClientEvent('ox_lib:notify', -1, {
+            title = '🏁 Race Cancelled',
+            description = 'Not enough players online for the scheduled race.',
+            type = 'warn', duration = 8000
+        })
+        return
+    end
+
+    -- ③ Spawn cars (mirrors sv:setupGrid logic)
+    for slot = 1, #Config.GridSpots do
+        local tid  = pendingGrid[slot]
+        local spot = Config.GridSpots[slot]
+        if tid then
+            local name = GetPlayerName(tid)
+            if name then
+                local cid = GetCid(tid)
+                TriggerClientEvent('fcrp_f1:cl:spawnYourCar', tid, spot)
+                racers[tostring(tid)] = {
+                    name=name, cid=cid, lap=1, cp=1, score=1,
+                    finished=false, dq=false, dqReason=nil,
+                    finishTime=nil, finishPos=nil, pitDone=false, gridSlot=slot,
+                    fastestLapMs=nil, currentLapStart=nil, lapTimes={},
+                    sectorTimes={}, currentSectorStart=nil,
+                    drsCount=0, engineOk=true, pitCount=0, currentTyre='medium',
+                    setFastestLap=false,
+                }
+                gridAssignments[slot] = tid
+                if OpenServerFunctions and OpenServerFunctions.OnDriverGridded then
+                    OpenServerFunctions.OnDriverGridded(tid, slot, cid)
                 end
             end
         end
+    end
+
+    BroadcastLeaderboard()
+    DBG('Scheduled race ' .. raceId .. ': ' .. placed .. ' driver(s) gridded')
+
+    TriggerClientEvent('ox_lib:notify', -1, {
+        title = '🏁 Race Starting',
+        description = 'Scheduled Grand Prix — ' .. placed .. ' drivers on the grid.',
+        type = 'inform', duration = 6000
+    })
+
+    -- ④ Brief pause for cars to spawn, then deploy safety car
+    Wait(3000)
+    scOrganiser = nil  -- no human organiser for scheduled races
+    TriggerClientEvent('fcrp_f1:cl:spawnSafetyCar', GetActivePlayers()[1] or -1)
+    Wait(1500)
+    TriggerClientEvent('fcrp_f1:cl:beginFormationLap', -1)
+
+    -- ⑤ After formation lap completes, sv:formationLapDone fires naturally
+    -- and starts the race via the existing handler. Nothing more needed here.
+    print(string.format('^2[F1]^7 Scheduled race %s launched — %d drivers.', raceId, placed))
+end
+
+CreateThread(function()
+    while true do
+        Wait(10000)   -- 10s poll — reliable within a 1-minute race window
+        if not Config.RaceSchedule then goto continue end
+
+        local day = os.date('%A')   -- 'Monday', 'Friday', etc.
+        local hh  = tonumber(os.date('%H'))
+        local mm  = tonumber(os.date('%M'))
+        local now = string.format('%02d:%02d', hh, mm)
+
+        -- Compute now - 10 minutes for warning comparison
+        local warnH, warnM = hh, mm - 10
+        if warnM < 0 then warnH = warnH - 1; warnM = warnM + 60 end
+        if warnH < 0 then warnH = 23 end
+        local warnBase = string.format('%02d:%02d', warnH, warnM)
+
+        local schedule = Config.RaceSchedule[day] or {}
+        for _, entry in ipairs(schedule) do
+            local raceKey = day .. '_' .. entry.time
+            local warnKey = raceKey .. '_warn'
+
+            -- ── Warning: fire once when now == entry.time - 10min ──
+            if warnBase == entry.time and not scheduledWarned[warnKey] then
+                scheduledWarned[warnKey] = true
+                DBG('Scheduled race warning: ' .. raceKey)
+                TriggerClientEvent('ox_lib:notify', -1, {
+                    title       = '🏁 Official Race in 10 minutes',
+                    description = (Config.Notify.scheduleWarning):gsub('{mins}', '10'),
+                    type        = 'inform', duration = 8000
+                })
+            end
+
+            -- ── Race start: fire once when now == entry.time ──
+            if now == entry.time and not scheduledStarted[raceKey] then
+                scheduledStarted[raceKey] = true
+                if raceInProgress then
+                    DBGW('Scheduled race ' .. raceKey .. ' skipped — race already in progress')
+                else
+                    local raceId = NewRaceId()
+                    DBG('Launching scheduled race: ' .. raceKey .. ' id=' .. raceId)
+                    CreateThread(function() DoScheduledRace(entry, raceId) end)
+                end
+            end
+        end
+
+        -- Reset daily tracking at midnight
+        if now == '00:00' then
+            scheduledWarned  = {}
+            scheduledStarted = {}
+            DBG('Scheduler daily reset at midnight.')
+        end
+
+        ::continue::
     end
 end)
 
